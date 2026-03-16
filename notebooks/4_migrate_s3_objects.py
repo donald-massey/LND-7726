@@ -22,6 +22,7 @@
 # %run ./1_discovery_and_analysis
 
 import sys
+import os
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from utils.database_utils import DatabaseConnection
 from utils.s3_utils import (
-    MockS3Client,
+    S3Client,
     list_county_objects,
     get_s3_key_from_path,
     replace_county_folder,
@@ -49,34 +50,31 @@ try:
     _ = MIGRATION_MAP  # noqa: F821
     _ = s3_client  # noqa: F821
 except NameError:
-    DRY_RUN      = True
-    DB_NAME_1    = "database_name_1"
-    DB_NAME_2    = "database_name_2"
-    DB_SERVER    = "mock-server"
-    S3_BUCKET    = "enverus-courthouse-prod-chd-plants"
-    STATE_PREFIX = "tx"
-    BATCH_SIZE   = 100
+    DRY_RUN      = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1    = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2    = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER    = os.environ.get("DB_SERVER", "")
+    DB_USERNAME  = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD  = os.environ.get("DB_PASSWORD", "")
+    S3_BUCKET    = os.environ.get("S3_BUCKET", "enverus-courthouse-prod-chd-plants")
+    STATE_PREFIX = os.environ.get("STATE_PREFIX", "tx")
+    BATCH_SIZE   = int(os.environ.get("BATCH_SIZE", "100"))
     DATABASES    = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
-    s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
-    MIGRATION_MAP = [
-        {
-            "database_name":     DB_NAME_1,
-            "county_id":         1,
-            "county_name":       "CROCKETT2",
-            "old_county_folder": "crockett2",
-            "new_county_folder": "crockett",
-        },
-        {
-            "database_name":     DB_NAME_1,
-            "county_id":         2,
-            "county_name":       "BEXAR1",
-            "old_county_folder": "bexar1",
-            "new_county_folder": "bexar",
-        },
-    ]
+    for _conn in DATABASES.values():
+        _conn.connect()
+    s3_client = S3Client(bucket=S3_BUCKET, region=os.environ.get("AWS_REGION", "us-east-1"))
+    # Load migration map from parquet file (written by Notebook 0)
+    _map_path = os.environ.get("MIGRATION_MAP_PATH", "")
+    if not _map_path:
+        raise RuntimeError(
+            "MIGRATION_MAP not set. Run Notebooks 0–1 first, or set MIGRATION_MAP_PATH "
+            "to the parquet file written by Notebook 0 (create_migration_map_parquet)."
+        )
+    import pandas as _pd
+    MIGRATION_MAP = _pd.read_parquet(_map_path).to_dict(orient="records")
 
 # COMMAND ----------
 # MAGIC %md ## 1. Derive priority-ordered list of unique county migrations
@@ -127,7 +125,7 @@ def _audit(
 
 
 def migrate_county(
-    client: MockS3Client,
+    client: S3Client,
     state_prefix: str,
     old_folder: str,
     new_folder: str,
@@ -189,11 +187,6 @@ def migrate_county(
                 counters["errors"] += 1
                 continue
 
-            if copy_result["status"] == "dry_run":
-                _audit(src_key, dst_key, "dry_run_copy", size)
-                counters["copied"] += 1
-                continue
-
             # --- Verify copy (size and ETag) ---
             try:
                 src_meta = client.head_object(Bucket=client.bucket, Key=src_key)
@@ -242,14 +235,38 @@ def migrate_county(
 migration_results: list[dict] = []
 
 for (old_folder, new_folder), _ in priority_counties:
-    result = migrate_county(
-        s3_client,
-        STATE_PREFIX,
-        old_folder,
-        new_folder,
-        batch_size=BATCH_SIZE,
-    )
-    migration_results.append(result)
+    if DRY_RUN:
+        # In DRY_RUN mode: count objects and estimate work without moving anything
+        objects = list_county_objects(s3_client, STATE_PREFIX, old_folder)
+        total_size = sum(obj.get("Size", 0) for obj in objects)
+        logger.info(
+            "DRY RUN — would migrate %d object(s) (%.1f MB): %s → %s",
+            len(objects), total_size / 1_048_576, old_folder, new_folder,
+        )
+        for obj in objects:
+            _audit(
+                obj["Key"],
+                replace_county_folder(obj["Key"], old_folder, new_folder),
+                "dry_run",
+                obj.get("Size", 0),
+            )
+        migration_results.append({
+            "old_folder":    old_folder,
+            "new_folder":    new_folder,
+            "copied":        len(objects),
+            "already_moved": 0,
+            "deleted":       0,
+            "errors":        0,
+        })
+    else:
+        result = migrate_county(
+            s3_client,
+            STATE_PREFIX,
+            old_folder,
+            new_folder,
+            batch_size=BATCH_SIZE,
+        )
+        migration_results.append(result)
 
 # COMMAND ----------
 # MAGIC %md ## 3. Check for remaining objects in old folders

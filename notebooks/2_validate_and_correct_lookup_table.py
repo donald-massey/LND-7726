@@ -17,6 +17,7 @@
 # %run ./0_setup_and_config   # ← uncomment in Databricks
 
 import sys
+import os
 import logging
 from pathlib import Path
 
@@ -24,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import DatabaseConnection, SAMPLE_LOOKUP_COUNTIES
+from utils.database_utils import DatabaseConnection
 from utils.validation_utils import validate_lookup_counties, generate_correction_map, correct_s3_key
 
 logger = logging.getLogger("LND-7726.validate_lookup")
@@ -35,14 +36,18 @@ logger = logging.getLogger("LND-7726.validate_lookup")
 try:
     _ = DATABASES  # noqa: F821
 except NameError:
-    DRY_RUN   = True
-    DB_NAME_1 = "database_name_1"
-    DB_NAME_2 = "database_name_2"
-    DB_SERVER = "mock-server"
+    DRY_RUN   = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1 = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2 = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER   = os.environ.get("DB_SERVER", "")
+    DB_USERNAME = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
     DATABASES = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
+    for _conn in DATABASES.values():
+        _conn.connect()
 
 # COMMAND ----------
 # MAGIC %md ## 1. Query tblLookupCounties from each database

@@ -120,14 +120,13 @@ from utils.database_utils import DatabaseConnection
 
 def get_db_connection(db_name: str) -> DatabaseConnection:
     """
-    Return a database connection for *db_name*.
-
-    Swap the sample-data implementation for a real pyodbc / JDBC wrapper
-    once live credentials are available.
+    Return a live pyodbc database connection for *db_name*.
     """
     conn = DatabaseConnection(
         db_name=db_name,
         server=DB_SERVER,
+        username=DB_USERNAME,
+        password=DB_PASSWORD,
         dry_run=DRY_RUN,
     )
     conn.connect()
@@ -142,29 +141,23 @@ DATABASES = {DB_NAME_1: db1, DB_NAME_2: db2}
 logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
 # COMMAND ----------
-# MAGIC %md ## 6. Mock S3 connection factory
+# MAGIC %md ## 6. S3 connection factory
 
 # COMMAND ----------
 
-from utils.s3_utils import MockS3Client
+from utils.s3_utils import S3Client
 
 
-def get_s3_client() -> MockS3Client:
+def get_s3_client() -> S3Client:
     """
-    Return an S3 client.
+    Return a boto3-backed S3 client for the configured bucket.
 
-    Replace *MockS3Client* with a real boto3 client when AWS credentials
-    are available:
-
-        import boto3
-        return boto3.client(
-            "s3",
-            aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-            aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
-        )
+    AWS credentials are resolved via the standard boto3 credential chain:
+    environment variables (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY),
+    ~/.aws/credentials, or an IAM instance/service role.
     """
-    return MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return S3Client(bucket=S3_BUCKET, region=region)
 
 
 s3_client = get_s3_client()

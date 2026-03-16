@@ -53,15 +53,19 @@ def _get_widget_or_env(widget_name: str, env_var: str, default: str) -> str:
 try:
     _ = DATABASES  # noqa: F821
 except NameError:
-    DRY_RUN   = True
-    DB_NAME_1 = "database_name_1"
-    DB_NAME_2 = "database_name_2"
-    DB_SERVER = "mock-server"
-    BATCH_SIZE = 100
+    DRY_RUN   = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1 = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2 = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER   = os.environ.get("DB_SERVER", "")
+    DB_USERNAME = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+    BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "100"))
     DATABASES = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
+    for _conn in DATABASES.values():
+        _conn.connect()
 
 MIGRATION_MAP_PATH: str = _get_widget_or_env(
     "migration_map_path", "MIGRATION_MAP_PATH", ""

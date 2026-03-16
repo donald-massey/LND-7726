@@ -19,6 +19,7 @@
 # %run ./1_discovery_and_analysis
 
 import sys
+import os
 import logging
 from pathlib import Path
 from collections import defaultdict
@@ -27,8 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import DatabaseConnection, SAMPLE_S3_IMAGE
-from utils.s3_utils import MockS3Client, list_county_objects, get_s3_key_from_path
+from utils.database_utils import DatabaseConnection
+from utils.s3_utils import S3Client, list_county_objects, get_s3_key_from_path
 from utils.validation_utils import reconcile_paths
 
 logger = logging.getLogger("LND-7726.inventory")
@@ -41,31 +42,30 @@ try:
     _ = MIGRATION_MAP  # noqa: F821
     _ = s3_client  # noqa: F821
 except NameError:
-    DRY_RUN      = True
-    DB_NAME_1    = "database_name_1"
-    DB_NAME_2    = "database_name_2"
-    DB_SERVER    = "mock-server"
-    S3_BUCKET    = "enverus-courthouse-prod-chd-plants"
-    STATE_PREFIX = "tx"
+    DRY_RUN      = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1    = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2    = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER    = os.environ.get("DB_SERVER", "")
+    DB_USERNAME  = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD  = os.environ.get("DB_PASSWORD", "")
+    S3_BUCKET    = os.environ.get("S3_BUCKET", "enverus-courthouse-prod-chd-plants")
+    STATE_PREFIX = os.environ.get("STATE_PREFIX", "tx")
     DATABASES    = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
-    s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
-    # Minimal migration map for standalone runs
-    MIGRATION_MAP = [
-        {
-            "database_name":     DB_NAME_1,
-            "county_id":         1,
-            "county_name":       "CROCKETT2",
-            "diml_county_name":  "CROCKETT_TX",
-            "old_county_folder": "crockett2",
-            "new_county_folder": "crockett",
-            "record_id":         101,
-            "old_s3_path":       "s3://enverus-courthouse-prod-chd-plants/tx/crockett2/e1ed/e1edc1e1-8608-4f03-88a0-72844609af94.pdf",
-            "new_s3_path":       "s3://enverus-courthouse-prod-chd-plants/tx/crockett/e1ed/e1edc1e1-8608-4f03-88a0-72844609af94.pdf",
-        },
-    ]
+    for _conn in DATABASES.values():
+        _conn.connect()
+    s3_client = S3Client(bucket=S3_BUCKET, region=os.environ.get("AWS_REGION", "us-east-1"))
+    # Load migration map from parquet file (written by Notebook 0)
+    _map_path = os.environ.get("MIGRATION_MAP_PATH", "")
+    if not _map_path:
+        raise RuntimeError(
+            "MIGRATION_MAP not set. Run Notebooks 0–1 first, or set MIGRATION_MAP_PATH "
+            "to the parquet file written by Notebook 0 (create_migration_map_parquet)."
+        )
+    import pandas as _pd
+    MIGRATION_MAP = _pd.read_parquet(_map_path).to_dict(orient="records")
 
 # COMMAND ----------
 # MAGIC %md ## 1. Collect distinct counties to migrate (from migration map)

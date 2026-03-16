@@ -4,61 +4,14 @@ database_utils.py
 Database connection class and SQL helpers for the LND-7726
 S3 County Folder Alignment migration.
 
-In production these helpers wrap a real pyodbc / JDBC connection;
-here they are wired to in-memory sample data so every notebook can
-be exercised without a live SQL Server instance.
+Wraps a real pyodbc connection to a SQL Server instance.
+Requires the ODBC Driver 17 (or 18) for SQL Server to be installed.
 """
 
 import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Sample data — mirrors the schema used by the production databases.
-# ---------------------------------------------------------------------------
-
-SAMPLE_LOOKUP_COUNTIES = [
-    {"CountyID": 1, "CountyName": "CROCKETT2", "DIMLCountyName": "CROCKETT_TX", "S3Key": "crockett"},
-    {"CountyID": 2, "CountyName": "BEXAR1",    "DIMLCountyName": "BEXAR_TX",    "S3Key": "bexar"},
-    {"CountyID": 3, "CountyName": "HARRIS3",   "DIMLCountyName": "HARRIS_TX",   "S3Key": "harris"},
-    {"CountyID": 4, "CountyName": "TRAVIS",    "DIMLCountyName": "TRAVIS_TX",   "S3Key": "travis"},
-]
-
-SAMPLE_S3_IMAGE = [
-    # CROCKETT2 — two records that need renaming
-    {
-        "recordID": 101,
-        "s3FilePath": "s3://enverus-courthouse-prod-chd-plants/tx/crockett2/e1ed/e1edc1e1-8608-4f03-88a0-72844609af94.pdf",
-    },
-    {
-        "recordID": 102,
-        "s3FilePath": "s3://enverus-courthouse-prod-chd-plants/tx/crockett2/6af8/6af89658-4471-4668-81ea-e339b35eafa1.pdf",
-    },
-    # BEXAR1
-    {
-        "recordID": 201,
-        "s3FilePath": "s3://enverus-courthouse-prod-chd-plants/tx/bexar1/aaaa/aaaaaaaa-1111-2222-3333-444444444444.pdf",
-    },
-    # HARRIS3
-    {
-        "recordID": 301,
-        "s3FilePath": "s3://enverus-courthouse-prod-chd-plants/tx/harris3/bbbb/bbbbbbbb-5555-6666-7777-888888888888.pdf",
-    },
-    # TRAVIS — already correct, should not be migrated
-    {
-        "recordID": 401,
-        "s3FilePath": "s3://enverus-courthouse-prod-chd-plants/tx/travis/cccc/cccccccc-9999-0000-aaaa-bbbbbbbbbbbb.pdf",
-    },
-]
-
-SAMPLE_RECORD = [
-    {"recordId": 101, "countyID": 1},
-    {"recordId": 102, "countyID": 1},
-    {"recordId": 201, "countyID": 2},
-    {"recordId": 301, "countyID": 3},
-    {"recordId": 401, "countyID": 4},
-]
 
 
 # ---------------------------------------------------------------------------
@@ -67,34 +20,65 @@ SAMPLE_RECORD = [
 
 class DatabaseConnection:
     """
-    Database connection for a SQL Server instance via pyodbc or a Databricks JDBC source.
+    Database connection for a SQL Server instance via pyodbc.
 
-    All methods return in-memory sample data so notebooks can be
-    developed and tested without a live database.
+    Parameters
+    ----------
+    db_name  : target database name
+    server   : SQL Server hostname or IP
+    username : SQL Server login
+    password : SQL Server password
+    dry_run  : when True, mutating statements are logged but not executed
     """
 
-    def __init__(self, db_name: str, server: str = "mock-server", dry_run: bool = True):
+    def __init__(
+        self,
+        db_name: str,
+        server: str,
+        username: str = "",
+        password: str = "",
+        dry_run: bool = True,
+    ):
         self.db_name = db_name
         self.server = server
+        self.username = username
+        self.password = password
         self.dry_run = dry_run
+        self._conn = None
         self._in_transaction = False
-        logger.info("DatabaseConnection initialised: server=%s db=%s dry_run=%s",
-                    server, db_name, dry_run)
+        logger.info(
+            "DatabaseConnection initialised: server=%s db=%s dry_run=%s",
+            server, db_name, dry_run,
+        )
 
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """Open (mock) connection — no-op in mock mode."""
+        """Open a pyodbc connection to the SQL Server database."""
+        import pyodbc  # noqa: PLC0415
+
+        conn_str = (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={self.server};"
+            f"DATABASE={self.db_name};"
+            f"UID={self.username};"
+            f"PWD={self.password};"
+            f"TrustServerCertificate=yes;"
+        )
+        self._conn = pyodbc.connect(conn_str, autocommit=False)
         logger.info("[%s] Connected to %s", self.db_name, self.server)
 
     def close(self) -> None:
-        """Close (mock) connection — no-op in mock mode."""
+        """Close the pyodbc connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
         logger.info("[%s] Connection closed", self.db_name)
 
     def begin_transaction(self) -> None:
-        """Begin a transaction."""
+        """Mark the start of a logical transaction (pyodbc uses implicit transactions)."""
         self._in_transaction = True
         logger.info("[%s] BEGIN TRANSACTION", self.db_name)
 
@@ -102,11 +86,15 @@ class DatabaseConnection:
         """Commit the current transaction."""
         if not self._in_transaction:
             raise RuntimeError("No active transaction to commit.")
+        if self._conn:
+            self._conn.commit()
         self._in_transaction = False
         logger.info("[%s] COMMIT", self.db_name)
 
     def rollback(self) -> None:
         """Roll back the current transaction."""
+        if self._conn:
+            self._conn.rollback()
         self._in_transaction = False
         logger.info("[%s] ROLLBACK", self.db_name)
 
@@ -114,48 +102,61 @@ class DatabaseConnection:
     # Query helpers
     # ------------------------------------------------------------------
 
-    def execute_query(self, sql: str, params: dict | None = None) -> list[dict[str, Any]]:
+    def execute_query(self, sql: str, params: list | None = None) -> list[dict[str, Any]]:
         """
         Execute a SELECT query and return a list of row dicts.
 
-        In mock mode the SQL is logged but sample data is returned
-        based on simple keyword inspection.
+        Parameters
+        ----------
+        sql    : SQL SELECT statement
+        params : optional positional parameters as a list (passed to pyodbc)
         """
+        if self._conn is None:
+            raise RuntimeError(
+                f"[{self.db_name}] Not connected. Call connect() first."
+            )
         logger.info("[%s] QUERY: %s | params=%s", self.db_name, sql.strip(), params)
+        cursor = self._conn.cursor()
+        if params:
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql)
+        if cursor.description is None:
+            return []
+        columns = [col[0] for col in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-        sql_upper = sql.upper()
-        # Multi-table discovery join: tblS3Image + tblRecord + tblLookupCounties
-        if "TBLS3IMAGE" in sql_upper and "TBLRECORD" in sql_upper and (
-            "TBLLOOKUP" in sql_upper or "LOOKUPCOUNT" in sql_upper
-        ):
-            return _build_discovery_rows()
-        # Single-table lookups (order matters — check more specific first)
-        if "TBLLOOKUP" in sql_upper or "LOOKUPCOUNT" in sql_upper:
-            return SAMPLE_LOOKUP_COUNTIES
-        if "TBLS3IMAGE" in sql_upper and "TBLRECORD" in sql_upper:
-            return _build_discovery_rows()
-        if "TBLS3IMAGE" in sql_upper:
-            return SAMPLE_S3_IMAGE
-        if "TBLRECORD" in sql_upper:
-            return SAMPLE_RECORD
-        return []
-
-    def execute_update(self, sql: str, params: dict | None = None) -> int:
+    def execute_update(self, sql: str, params: list | None = None) -> int:
         """
         Execute an INSERT / UPDATE / DELETE statement.
 
-        In DRY_RUN mode the statement is logged but not applied.
-        Returns the number of rows that would be / were affected.
+        In DRY_RUN mode the statement is logged but not applied and 0 is returned.
+        Otherwise returns the number of rows affected (``cursor.rowcount``).
+
+        Parameters
+        ----------
+        sql    : SQL DML statement
+        params : optional positional parameters as a list (passed to pyodbc)
         """
-        logger.info("[%s] UPDATE (dry_run=%s): %s | params=%s",
-                    self.db_name, self.dry_run, sql.strip(), params)
+        logger.info(
+            "[%s] UPDATE (dry_run=%s): %s | params=%s",
+            self.db_name, self.dry_run, sql.strip(), params,
+        )
         if self.dry_run:
             logger.info("[%s] DRY RUN — no changes written.", self.db_name)
             return 0
-        # Simulate a successful update affecting a small number of rows.
-        simulated_rows = 2
-        logger.info("[%s] %d row(s) affected.", self.db_name, simulated_rows)
-        return simulated_rows
+        if self._conn is None:
+            raise RuntimeError(
+                f"[{self.db_name}] Not connected. Call connect() first."
+            )
+        cursor = self._conn.cursor()
+        if params:
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql)
+        rows_affected = cursor.rowcount
+        logger.info("[%s] %d row(s) affected.", self.db_name, rows_affected)
+        return rows_affected
 
 
 # ---------------------------------------------------------------------------
@@ -235,10 +236,10 @@ def batch_update_paths(
 
     Parameters
     ----------
-    conn           : database connection (real or mock)
+    conn           : database connection
     migration_map  : list of dicts with keys:
                        old_county_folder, new_county_folder, county_id
-    batch_size     : rows per commit (not enforced in mock mode)
+    batch_size     : rows per commit (reserved for future use)
 
     Returns
     -------
@@ -271,34 +272,3 @@ def batch_update_paths(
             results[str(county_id)] = -1
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _build_discovery_rows() -> list[dict[str, Any]]:
-    """Join SAMPLE tables to produce discovery query result rows."""
-    rows = []
-    record_map = {r["recordId"]: r for r in SAMPLE_RECORD}
-    county_map = {c["CountyID"]: c for c in SAMPLE_LOOKUP_COUNTIES}
-
-    for img in SAMPLE_S3_IMAGE:
-        rec = record_map.get(img["recordID"])
-        if rec is None:
-            continue
-        county = county_map.get(rec["countyID"])
-        if county is None:
-            continue
-        # Only return rows where CountyName != S3Key (the mismatches)
-        if county["CountyName"] == county["S3Key"]:
-            continue
-        rows.append({
-            "s3FilePath":     img["s3FilePath"],
-            "recordId":       rec["recordId"],
-            "CountyID":       county["CountyID"],
-            "CountyName":     county["CountyName"],
-            "S3Key":          county["S3Key"],
-            "DIMLCountyName": county["DIMLCountyName"],
-        })
-    return rows

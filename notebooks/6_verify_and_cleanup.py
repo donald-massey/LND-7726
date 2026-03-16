@@ -28,8 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import DatabaseConnection, SAMPLE_S3_IMAGE
-from utils.s3_utils import MockS3Client, list_county_objects, get_s3_key_from_path
+from utils.database_utils import DatabaseConnection
+from utils.s3_utils import S3Client, list_county_objects, get_s3_key_from_path
 from utils.validation_utils import reconcile_paths
 
 logger = logging.getLogger("LND-7726.verify")
@@ -51,17 +51,21 @@ try:
     _ = DATABASES  # noqa: F821
     _ = s3_client  # noqa: F821
 except NameError:
-    DRY_RUN      = True
-    DB_NAME_1    = "database_name_1"
-    DB_NAME_2    = "database_name_2"
-    DB_SERVER    = "mock-server"
-    S3_BUCKET    = "enverus-courthouse-prod-chd-plants"
-    STATE_PREFIX = "tx"
+    DRY_RUN      = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1    = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2    = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER    = os.environ.get("DB_SERVER", "")
+    DB_USERNAME  = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD  = os.environ.get("DB_PASSWORD", "")
+    S3_BUCKET    = os.environ.get("S3_BUCKET", "enverus-courthouse-prod-chd-plants")
+    STATE_PREFIX = os.environ.get("STATE_PREFIX", "tx")
     DATABASES    = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
-    s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
+    for _conn in DATABASES.values():
+        _conn.connect()
+    s3_client = S3Client(bucket=S3_BUCKET, region=os.environ.get("AWS_REGION", "us-east-1"))
 
 MIGRATION_MAP_PATH: str = _get_widget_or_env(
     "migration_map_path", "MIGRATION_MAP_PATH", ""
@@ -265,7 +269,7 @@ else:
 print("=" * 80)
 
 if DRY_RUN:
-    print("\n  ℹ️  Note: Running in DRY RUN mode — S3 state reflects mock data.\n")
+    print("\n  ℹ️  Note: Running in DRY RUN mode.\n")
 
 # COMMAND ----------
 # MAGIC %md ## 6. Persist verification report

@@ -25,7 +25,6 @@ if str(REPO_ROOT) not in sys.path:
 from utils.database_utils import (
     DatabaseConnection,
     build_discovery_query,
-    SAMPLE_LOOKUP_COUNTIES,
 )
 from utils.validation_utils import extract_county_folder
 
@@ -38,15 +37,19 @@ try:
     _ = DATABASES  # noqa: F821 — set by setup notebook
 except NameError:
     from utils.database_utils import DatabaseConnection
-    DRY_RUN      = True
-    DB_NAME_1    = "database_name_1"
-    DB_NAME_2    = "database_name_2"
-    DB_SERVER    = "mock-server"
-    STATE_PREFIX = "tx"
+    DRY_RUN      = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
+    DB_NAME_1    = os.environ.get("DB_NAME_1", "database_name_1")
+    DB_NAME_2    = os.environ.get("DB_NAME_2", "database_name_2")
+    DB_SERVER    = os.environ.get("DB_SERVER", "")
+    DB_USERNAME  = os.environ.get("DB_USERNAME", "")
+    DB_PASSWORD  = os.environ.get("DB_PASSWORD", "")
+    STATE_PREFIX = os.environ.get("STATE_PREFIX", "tx")
     DATABASES    = {
-        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
     }
+    for _conn in DATABASES.values():
+        _conn.connect()
 
 # COMMAND ----------
 # MAGIC %md ## 1. Run discovery query against both databases
