@@ -7,6 +7,7 @@ Validate tblLookupCounties.S3Key values are clean (no trailing numbers, no speci
 Discover all mismatched county folders by comparing CountyName in tblS3Image paths against S3Key in tblLookupCounties — across all three databases
 Move all S3 objects from erroneous county folders to the correct folder path (creating the destination prefix if it doesn't exist)
 Update s3FilePath in tblS3Image across all three databases to reflect the new S3 locations
+Don't include any mock functions
 Verify every record in tblS3Image has a corresponding object in S3 after the move
 Reference Query (from ticket)
 SQL
@@ -32,7 +33,7 @@ Common helper functions (logging, S3 path manipulation)
 County path segment extraction regex: extract county name from s3FilePath between known delimiters
 Notebook 1 — 01_validate_lookup_table.py
 
-For each of the 3 databases, query tblLookupCounties and check that S3Key:
+For each of the 2 databases, query tblLookupCounties and check that S3Key:
 Has no trailing digits
 Has no special characters (only letters, spaces, hyphens allowed)
 Is not NULL or empty
