@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import MockDatabaseConnection
+from utils.database_utils import DatabaseConnection
 from utils.s3_utils import (
     MockS3Client,
     list_county_objects,
@@ -57,8 +57,8 @@ except NameError:
     STATE_PREFIX = "tx"
     BATCH_SIZE   = 100
     DATABASES    = {
-        DB_NAME_1: MockDatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: MockDatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
     s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
     MIGRATION_MAP = [

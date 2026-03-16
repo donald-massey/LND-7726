@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import MockDatabaseConnection, SAMPLE_LOOKUP_COUNTIES
+from utils.database_utils import DatabaseConnection, SAMPLE_LOOKUP_COUNTIES
 from utils.validation_utils import validate_lookup_counties, generate_correction_map, correct_s3_key
 
 logger = logging.getLogger("LND-7726.validate_lookup")
@@ -40,8 +40,8 @@ except NameError:
     DB_NAME_2 = "database_name_2"
     DB_SERVER = "mock-server"
     DATABASES = {
-        DB_NAME_1: MockDatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: MockDatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
 
 # COMMAND ----------

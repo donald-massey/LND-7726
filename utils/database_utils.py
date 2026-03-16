@@ -1,7 +1,7 @@
 """
 database_utils.py
 =================
-Mock database connection class and SQL helpers for the LND-7726
+Database connection class and SQL helpers for the LND-7726
 S3 County Folder Alignment migration.
 
 In production these helpers wrap a real pyodbc / JDBC connection;
@@ -62,12 +62,12 @@ SAMPLE_RECORD = [
 
 
 # ---------------------------------------------------------------------------
-# Mock Database Connection
+# Database Connection
 # ---------------------------------------------------------------------------
 
-class MockDatabaseConnection:
+class DatabaseConnection:
     """
-    Simulates a SQL Server connection via pyodbc or a Databricks JDBC source.
+    Database connection for a SQL Server instance via pyodbc or a Databricks JDBC source.
 
     All methods return in-memory sample data so notebooks can be
     developed and tested without a live database.
@@ -78,7 +78,7 @@ class MockDatabaseConnection:
         self.server = server
         self.dry_run = dry_run
         self._in_transaction = False
-        logger.info("MockDatabaseConnection initialised: server=%s db=%s dry_run=%s",
+        logger.info("DatabaseConnection initialised: server=%s db=%s dry_run=%s",
                     server, db_name, dry_run)
 
     # ------------------------------------------------------------------
@@ -225,7 +225,7 @@ def build_count_query(old_county_folder: str, county_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def batch_update_paths(
-    conn: MockDatabaseConnection,
+    conn: DatabaseConnection,
     migration_map: list[dict],
     batch_size: int = 100,
 ) -> dict[str, int]:

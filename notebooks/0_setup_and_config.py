@@ -110,21 +110,21 @@ except NameError:
         logger.warning("PySpark not available — dataframe operations will be skipped.")
 
 # COMMAND ----------
-# MAGIC %md ## 5. Mock database connection factory
+# MAGIC %md ## 5. Database connection factory
 
 # COMMAND ----------
 
-from utils.database_utils import MockDatabaseConnection
+from utils.database_utils import DatabaseConnection
 
 
-def get_db_connection(db_name: str) -> MockDatabaseConnection:
+def get_db_connection(db_name: str) -> DatabaseConnection:
     """
     Return a database connection for *db_name*.
 
-    Swap *MockDatabaseConnection* for a real pyodbc / JDBC wrapper
+    Swap the sample-data implementation for a real pyodbc / JDBC wrapper
     once live credentials are available.
     """
-    conn = MockDatabaseConnection(
+    conn = DatabaseConnection(
         db_name=db_name,
         server=DB_SERVER,
         dry_run=DRY_RUN,

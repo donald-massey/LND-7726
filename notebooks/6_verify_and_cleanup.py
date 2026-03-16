@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.database_utils import MockDatabaseConnection, SAMPLE_S3_IMAGE
+from utils.database_utils import DatabaseConnection, SAMPLE_S3_IMAGE
 from utils.s3_utils import MockS3Client, list_county_objects, get_s3_key_from_path
 from utils.validation_utils import reconcile_paths
 
@@ -48,8 +48,8 @@ except NameError:
     S3_BUCKET    = "enverus-courthouse-prod-chd-plants"
     STATE_PREFIX = "tx"
     DATABASES    = {
-        DB_NAME_1: MockDatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: MockDatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
     s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
     MIGRATION_MAP = [

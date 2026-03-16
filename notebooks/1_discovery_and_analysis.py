@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from utils.database_utils import (
-    MockDatabaseConnection,
+    DatabaseConnection,
     build_discovery_query,
     SAMPLE_LOOKUP_COUNTIES,
 )
@@ -37,15 +37,15 @@ logger = logging.getLogger("LND-7726.discovery")
 try:
     _ = DATABASES  # noqa: F821 — set by setup notebook
 except NameError:
-    from utils.database_utils import MockDatabaseConnection
+    from utils.database_utils import DatabaseConnection
     DRY_RUN      = True
     DB_NAME_1    = "database_name_1"
     DB_NAME_2    = "database_name_2"
     DB_SERVER    = "mock-server"
     STATE_PREFIX = "tx"
     DATABASES    = {
-        DB_NAME_1: MockDatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: MockDatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
 
 # COMMAND ----------
@@ -53,7 +53,7 @@ except NameError:
 
 # COMMAND ----------
 
-def run_discovery(db_name: str, conn: MockDatabaseConnection, state_prefix: str) -> list[dict]:
+def run_discovery(db_name: str, conn: DatabaseConnection, state_prefix: str) -> list[dict]:
     """
     Execute the discovery query and return rows where CountyName != S3Key
     (i.e. the folder in tblS3Image does not match the canonical S3Key).

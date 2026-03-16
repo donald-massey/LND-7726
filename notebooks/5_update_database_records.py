@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from utils.database_utils import (
-    MockDatabaseConnection,
+    DatabaseConnection,
     batch_update_paths,
     build_update_path_query,
     build_count_query,
@@ -48,8 +48,8 @@ except NameError:
     DB_SERVER = "mock-server"
     BATCH_SIZE = 100
     DATABASES = {
-        DB_NAME_1: MockDatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
-        DB_NAME_2: MockDatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
+        DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DRY_RUN),
+        DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
     MIGRATION_MAP = [
         {
