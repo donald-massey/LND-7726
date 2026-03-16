@@ -19,6 +19,7 @@
 
 # %run ./0_setup_and_config   # ← uncomment in Databricks
 
+import os
 import sys
 import logging
 from pathlib import Path
@@ -33,12 +34,21 @@ from utils.validation_utils import reconcile_paths
 
 logger = logging.getLogger("LND-7726.verify")
 
+
+def _get_widget_or_env(widget_name: str, env_var: str, default: str) -> str:
+    """Retrieve a value from a Databricks widget, env var, or hard-coded default."""
+    try:
+        dbutils.widgets.text(widget_name, os.environ.get(env_var, default))  # noqa: F821
+        return dbutils.widgets.get(widget_name)  # noqa: F821
+    except NameError:
+        return os.environ.get(env_var, default)
+
+
 # ---------------------------------------------------------------------------
 # Config defaults
 # ---------------------------------------------------------------------------
 try:
     _ = DATABASES  # noqa: F821
-    _ = MIGRATION_MAP  # noqa: F821
     _ = s3_client  # noqa: F821
 except NameError:
     DRY_RUN      = True
@@ -52,22 +62,69 @@ except NameError:
         DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DRY_RUN),
     }
     s3_client = MockS3Client(bucket=S3_BUCKET, dry_run=DRY_RUN)
-    MIGRATION_MAP = [
-        {
-            "database_name":     DB_NAME_1,
-            "county_id":         1,
-            "county_name":       "CROCKETT2",
-            "old_county_folder": "crockett2",
-            "new_county_folder": "crockett",
-        },
-        {
-            "database_name":     DB_NAME_2,
-            "county_id":         2,
-            "county_name":       "BEXAR1",
-            "old_county_folder": "bexar1",
-            "new_county_folder": "bexar",
-        },
-    ]
+
+MIGRATION_MAP_PATH: str = _get_widget_or_env(
+    "migration_map_path", "MIGRATION_MAP_PATH", ""
+)
+
+# COMMAND ----------
+# MAGIC %md ## 0. Load migration map from parquet or Delta table
+
+# COMMAND ----------
+
+
+def load_migration_map() -> list[dict]:
+    """
+    Load the migration map in priority order:
+
+    1. Delta table ``county_folder_migration_map`` (written by Notebook 2,
+       available when running inside Databricks with Spark).
+    2. Parquet file at ``MIGRATION_MAP_PATH`` (set via the
+       ``migration_map_path`` widget or ``MIGRATION_MAP_PATH`` env var).
+
+    Raises
+    ------
+    RuntimeError
+        If neither source is reachable.
+    """
+    # 1 — Delta table (Databricks / Spark)
+    try:
+        df = spark.table("county_folder_migration_map")  # noqa: F821
+        rows = [row.asDict() for row in df.collect()]
+        logger.info("Migration map loaded from Delta table: %d row(s)", len(rows))
+        return rows
+    except Exception as exc:
+        logger.info("Delta table not available (%s) — trying parquet file.", exc)
+
+    # 2 — Parquet file
+    if not MIGRATION_MAP_PATH:
+        raise RuntimeError(
+            "No migration map source found. "
+            "Set the 'migration_map_path' widget (or MIGRATION_MAP_PATH env var) "
+            "to a parquet file path, or ensure the Delta table "
+            "'county_folder_migration_map' is available."
+        )
+
+    import pandas as pd  # noqa: PLC0415
+
+    logger.info("Loading migration map from parquet: %s", MIGRATION_MAP_PATH)
+    df_pq = pd.read_parquet(MIGRATION_MAP_PATH)
+
+    required_cols = {"database_name", "county_id", "county_name", "old_county_folder", "new_county_folder"}
+    missing = required_cols - set(df_pq.columns)
+    if missing:
+        raise ValueError(
+            f"Parquet file is missing required column(s): {sorted(missing)}. "
+            f"Expected: {sorted(required_cols)}"
+        )
+
+    rows = df_pq[sorted(required_cols)].to_dict(orient="records")
+    logger.info("Migration map loaded from parquet: %d row(s)", len(rows))
+    return rows
+
+
+MIGRATION_MAP = load_migration_map()
+logger.info("Migration map: %d total path entries", len(MIGRATION_MAP))
 
 # COMMAND ----------
 # MAGIC %md ## 1. Verify every tblS3Image record has a matching S3 object
