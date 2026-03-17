@@ -1,4 +1,5 @@
 -- CS_Digital.dbo.tbllookupCounties Dev
+-- Should we also update the storageFilePath?
 SELECT DIMLCountyName, CountyName
 FROM [CS_Digital].[dbo].[tblS3Image] i
 JOIN [CS_Digital].dbo.tblRecord r ON r.recordId = i.recordID
@@ -39,3 +40,31 @@ WHERE CountyName IN (
 )
 GROUP BY _CreatedDateTime, r.recordID, CountyName
 ORDER BY _CreatedDateTime DESC, CountyName DESC
+
+SELECT *
+FROM CS_Digital.dbo.tblrecord
+WHERE recordID = '7659af16-93cc-47e9-970a-3a47e38235c6'
+
+SET XACT_ABORT ON;
+BEGIN TRAN;
+
+SELECT TOP 10 s3FilePath
+FROM CS_Digital.dbo.tblS3Image
+WHERE s3FilePath LIKE '%JOHNSON1%'
+
+UPDATE CS_Digital.dbo.tblS3Image
+SET s3FilePath = REPLACE(s3FilePath, 'johnson1', 'johnson')
+WHERE s3FilePath LIKE '%JOHNSON1%'
+
+SELECT TOP 10 s3FilePath
+FROM CS_Digital.dbo.tblS3Image
+WHERE s3FilePath LIKE '%JOHNSON1%'
+
+SELECT TOP 10 s3FilePath
+FROM CS_Digital.dbo.tblS3Image
+WHERE s3FilePath LIKE '%JOHNSON%'
+
+ROLLBACK TRAN;
+--COMMIT TRAN;
+
+SELECT @@TRANCOUNT, XACT_STATE();

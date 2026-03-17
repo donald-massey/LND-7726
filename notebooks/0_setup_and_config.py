@@ -62,48 +62,7 @@ logger.info("Logging initialised.")
 
 # COMMAND ----------
 
-# MAGIC %md ## 3. Databricks widgets (configuration parameters)
-# MAGIC
-# MAGIC Widgets are displayed in the Databricks UI as form controls.
-# MAGIC When running locally the values fall back to environment variables or defaults.
-
-# COMMAND ----------
-
-def _get_widget_or_env(widget_name: str, env_var: str, default: str) -> str:
-    """
-    Retrieve a value from a Databricks widget, environment variable, or hard-coded default.
-    Falls back gracefully when running outside Databricks.
-    """
-    try:
-        # dbutils is injected by the Databricks runtime.
-        dbutils.widgets.text(widget_name, os.environ.get(env_var, default))  # noqa: F821
-        return dbutils.widgets.get(widget_name)  # noqa: F821
-    except NameError:
-        # Not running in Databricks — use env var or default.
-        return os.environ.get(env_var, default)
-
-
-S3_BUCKET          = _get_widget_or_env("s3_bucket",          "S3_BUCKET",          "enverus-courthouse-prod-chd-plants")
-DB_SERVER          = _get_widget_or_env("db_server",          "DB_SERVER",          "your-dev-server.database.windows.net")
-DB_NAME_1          = _get_widget_or_env("db_name_1",          "DB_NAME_1",          "database_name_1")
-DB_NAME_2          = _get_widget_or_env("db_name_2",          "DB_NAME_2",          "database_name_2")
-DB_USERNAME        = _get_widget_or_env("db_username",        "DB_USERNAME",        "your_username")
-DB_PASSWORD        = _get_widget_or_env("db_password",        "DB_PASSWORD",        "your_password")
-DRY_RUN_STR        = _get_widget_or_env("dry_run",            "DRY_RUN",            "true")
-BATCH_SIZE         = int(_get_widget_or_env("batch_size",     "BATCH_SIZE",         "100"))
-MIGRATION_MAP_PATH = _get_widget_or_env("migration_map_path", "MIGRATION_MAP_PATH", "/tmp/county_migration_map.parquet")
-
-# Resolve DRY_RUN to a boolean
-DRY_RUN: bool = DRY_RUN_STR.strip().lower() in ("1", "true", "yes")
-
-logger.info(
-    "Config: bucket=%s state=%s db_server=%s db1=%s db2=%s dry_run=%s batch_size=%d migration_map=%s",
-    S3_BUCKET, STATE_PREFIX, DB_SERVER, DB_NAME_1, DB_NAME_2, DRY_RUN, BATCH_SIZE, MIGRATION_MAP_PATH,
-)
-
-# COMMAND ----------
-
-# MAGIC %md ## 4. Spark configuration
+# MAGIC %md ## 3. Spark configuration
 
 # COMMAND ----------
 
@@ -122,7 +81,7 @@ except NameError:
 
 # COMMAND ----------
 
-# MAGIC %md ## 5. Database connection factory
+# MAGIC %md ## 4. Database connection factory
 
 # COMMAND ----------
 
@@ -153,7 +112,7 @@ logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
 # COMMAND ----------
 
-# MAGIC %md ## 6. S3 connection factory
+# MAGIC %md ## 5. S3 connection factory
 
 # COMMAND ----------
 
@@ -177,7 +136,7 @@ logger.info("S3 client ready: bucket=%s", S3_BUCKET)
 
 # COMMAND ----------
 
-# MAGIC %md ## 7. Shared utility functions
+# MAGIC %md ## 6. Shared utility functions
 
 # COMMAND ----------
 
@@ -219,7 +178,7 @@ def rows_to_spark_df(rows: list[dict], schema=None):
 
 # COMMAND ----------
 
-# MAGIC %md ## 8. Configuration summary
+# MAGIC %md ## 7. Configuration summary
 
 # COMMAND ----------
 
@@ -240,7 +199,7 @@ else:
 
 # COMMAND ----------
 
-# MAGIC %md ## 9. Migration map parquet builder
+# MAGIC %md ## 8. Migration map parquet builder
 # MAGIC
 # MAGIC Use `create_migration_map_parquet()` to create (or overwrite) the parquet file
 # MAGIC that drives county-folder corrections in Notebooks 5 and 6.
