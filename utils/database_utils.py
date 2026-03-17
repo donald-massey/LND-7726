@@ -5,7 +5,7 @@ Database connection class and SQL helpers for the LND-7726
 S3 County Folder Alignment migration.
 
 Wraps a real pyodbc connection to a SQL Server instance.
-Requires the ODBC Driver 17 (or 18) for SQL Server to be installed.
+Requires the ODBC Driver 18 for SQL Server to be installed.
 """
 
 import logging
@@ -60,7 +60,7 @@ class DatabaseConnection:
         import pyodbc  # noqa: PLC0415
 
         conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={self.server};"
             f"DATABASE={self.db_name};"
             f"UID={self.username};"

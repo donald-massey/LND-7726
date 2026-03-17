@@ -11,6 +11,23 @@
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Install mosdbcsql17
+
+# COMMAND ----------
+
+# MAGIC %sh
+# MAGIC # Import the Microsoft GPG key in dearmored format to the location the repo expects
+# MAGIC curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+# MAGIC
+# MAGIC # Add the Microsoft SQL Server repo for Ubuntu 24.04 (noble)
+# MAGIC echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+# MAGIC
+# MAGIC sudo apt-get update
+# MAGIC sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+
+# COMMAND ----------
+
 # MAGIC %md ## 1. Install / import dependencies
 
 # COMMAND ----------
@@ -39,8 +56,8 @@ try:
     if _env_file.exists():
         load_dotenv(_env_file)
         print(f"Loaded environment variables from {_env_file}")
-        # for key, value in os.environ.items():
-        #     print(f'key: {key}; value: {value}')
+        for key, value in os.environ.items():
+            print(f'key: {key}; value: {value}')
     else:
         print(f"No .env file found at {_env_file} — using environment / Databricks secrets.")
 except ImportError:
@@ -111,10 +128,10 @@ countyScansTitle = get_db_connection(
     dry_run=os.environ.get("DRY_RUN", True),
 )
 CS_Digital = get_db_connection(
-    db_name=os.environ.get("DB_NAME_2", None),
-    server=os.environ.get("DB_SERVER", None),
-    username=os.environ.get("DB_USERNAME", None),
-    password=os.environ.get("DB_PASSWORD", None),
+    db_name=os.environ.get("CSD_DB", None),
+    server=os.environ.get("CSD_SERVER", None),
+    username=os.environ.get("CSD_USERNAME", None),
+    password=os.environ.get("CSD_PASSWORD", None),
     dry_run=os.environ.get("DRY_RUN", True),
 )
 
@@ -139,11 +156,11 @@ def get_s3_client() -> S3Client:
     ~/.aws/credentials, or an IAM instance/service role.
     """
     region = os.environ.get("AWS_REGION", "us-east-1")
-    return S3Client(bucket=S3_BUCKET, region=region)
+    return S3Client(bucket=os.environ.get("S3_BUCKET", None), region=region)
 
 
 s3_client = get_s3_client()
-logger.info("S3 client ready: bucket=%s", S3_BUCKET)
+logger.info("S3 client ready: bucket=%s", os.environ.get("S3_BUCKET", None))
 
 # COMMAND ----------
 
