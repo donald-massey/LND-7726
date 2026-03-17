@@ -88,14 +88,7 @@ except NameError:
 from utils.database_utils import DatabaseConnection
 
 
-def get_db_connection(
-    *,
-    db_name: str,
-    server: str,
-    username: str = "",
-    password: str = "",
-    dry_run: bool = True,
-) -> DatabaseConnection:
+def get_db_connection(*, db_name: str, server: str, username: str = "", password: str = "", dry_run: bool = True,) -> DatabaseConnection:
     """
     Return a live pyodbc database connection using explicit keyword arguments.
     """
@@ -109,24 +102,23 @@ def get_db_connection(
     conn.connect()
     return conn
 
-
 # Instantiate connections to both databases.
 countyScansTitle = get_db_connection(
-    db_name=DB_NAME_1,
-    server=DB_SERVER,
-    username=DB_USERNAME,
-    password=DB_PASSWORD,
-    dry_run=DRY_RUN,
+    db_name=os.environ.get("CST_DB", None),
+    server=os.environ.get("CST_SERVER", None),
+    username=os.environ.get("CST_USERNAME", None),
+    password=os.environ.get("CST_PASSWORD", None),
+    dry_run=os.environ.get("DRY_RUN", True),
 )
 CS_Digital = get_db_connection(
-    db_name=DB_NAME_2,
-    server=DB_SERVER,
-    username=DB_USERNAME,
-    password=DB_PASSWORD,
-    dry_run=DRY_RUN,
+    db_name=os.environ.get("DB_NAME_2", None),
+    server=os.environ.get("DB_SERVER", None),
+    username=os.environ.get("DB_USERNAME", None),
+    password=os.environ.get("DB_PASSWORD", None),
+    dry_run=os.environ.get("DRY_RUN", True),
 )
 
-DATABASES = {DB_NAME_1: countyScansTitle, DB_NAME_2: CS_Digital}
+DATABASES = {"CST_DB": countyScansTitle, "CSD_DB": CS_Digital}
 logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
 # COMMAND ----------
