@@ -111,14 +111,14 @@ def get_db_connection(
 
 
 # Instantiate connections to both databases.
-db1 = get_db_connection(
+countyScansTitle = get_db_connection(
     db_name=DB_NAME_1,
     server=DB_SERVER,
     username=DB_USERNAME,
     password=DB_PASSWORD,
     dry_run=DRY_RUN,
 )
-db2 = get_db_connection(
+CS_Digital = get_db_connection(
     db_name=DB_NAME_2,
     server=DB_SERVER,
     username=DB_USERNAME,
@@ -126,7 +126,7 @@ db2 = get_db_connection(
     dry_run=DRY_RUN,
 )
 
-DATABASES = {DB_NAME_1: db1, DB_NAME_2: db2}
+DATABASES = {DB_NAME_1: countyScansTitle, DB_NAME_2: CS_Digital}
 logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
 # COMMAND ----------
