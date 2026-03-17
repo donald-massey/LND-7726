@@ -10,19 +10,25 @@
 # MAGIC downstream notebook.**
 
 # COMMAND ----------
+
 # MAGIC %md ## 1. Install / import dependencies
 
 # COMMAND ----------
 
 import os
+import re
 import sys
 import logging
-import re
-from datetime import datetime, timezone
 from pathlib import Path
+from datetime import datetime, timezone
+
+# Derive REPO_ROOT from the notebook's actual workspace path.
+# notebookPath() returns a workspace-relative path (e.g. /Users/.../LND-7726/notebooks/0_setup_and_config)
+# Filesystem operations require the /Workspace prefix.
+_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+REPO_ROOT = Path(f"/Workspace{_nb_path}").parent.parent
 
 # Ensure the repo root is on the Python path so `utils` can be imported.
-REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in dir() else Path("/Workspace/Repos/LND-7726")
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -33,12 +39,15 @@ try:
     if _env_file.exists():
         load_dotenv(_env_file)
         print(f"Loaded environment variables from {_env_file}")
+        # for key, value in os.environ.items():
+        #     print(f'key: {key}; value: {value}')
     else:
         print(f"No .env file found at {_env_file} — using environment / Databricks secrets.")
 except ImportError:
     print("python-dotenv not installed; skipping .env load.")
 
 # COMMAND ----------
+
 # MAGIC %md ## 2. Logging configuration
 
 # COMMAND ----------
@@ -52,6 +61,7 @@ logger = logging.getLogger("LND-7726")
 logger.info("Logging initialised.")
 
 # COMMAND ----------
+
 # MAGIC %md ## 3. Databricks widgets (configuration parameters)
 # MAGIC
 # MAGIC Widgets are displayed in the Databricks UI as form controls.
@@ -74,7 +84,6 @@ def _get_widget_or_env(widget_name: str, env_var: str, default: str) -> str:
 
 
 S3_BUCKET          = _get_widget_or_env("s3_bucket",          "S3_BUCKET",          "enverus-courthouse-prod-chd-plants")
-STATE_PREFIX       = _get_widget_or_env("state_prefix",       "STATE_PREFIX",       "tx")
 DB_SERVER          = _get_widget_or_env("db_server",          "DB_SERVER",          "your-dev-server.database.windows.net")
 DB_NAME_1          = _get_widget_or_env("db_name_1",          "DB_NAME_1",          "database_name_1")
 DB_NAME_2          = _get_widget_or_env("db_name_2",          "DB_NAME_2",          "database_name_2")
@@ -93,6 +102,7 @@ logger.info(
 )
 
 # COMMAND ----------
+
 # MAGIC %md ## 4. Spark configuration
 
 # COMMAND ----------
@@ -111,6 +121,7 @@ except NameError:
         logger.warning("PySpark not available — dataframe operations will be skipped.")
 
 # COMMAND ----------
+
 # MAGIC %md ## 5. Database connection factory
 
 # COMMAND ----------
@@ -141,6 +152,7 @@ DATABASES = {DB_NAME_1: db1, DB_NAME_2: db2}
 logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
 # COMMAND ----------
+
 # MAGIC %md ## 6. S3 connection factory
 
 # COMMAND ----------
@@ -164,6 +176,7 @@ s3_client = get_s3_client()
 logger.info("S3 client ready: bucket=%s", S3_BUCKET)
 
 # COMMAND ----------
+
 # MAGIC %md ## 7. Shared utility functions
 
 # COMMAND ----------
@@ -205,6 +218,7 @@ def rows_to_spark_df(rows: list[dict], schema=None):
 
 
 # COMMAND ----------
+
 # MAGIC %md ## 8. Configuration summary
 
 # COMMAND ----------
@@ -225,6 +239,7 @@ else:
     print("  🚨 LIVE MODE — changes WILL be written to S3 and databases.")
 
 # COMMAND ----------
+
 # MAGIC %md ## 9. Migration map parquet builder
 # MAGIC
 # MAGIC Use `create_migration_map_parquet()` to create (or overwrite) the parquet file
@@ -332,6 +347,7 @@ def create_migration_map_parquet(
     return dest
 
 # COMMAND ----------
+
 # MAGIC %md ### Edit the CORRECTIONS list below, then run this cell to (re-)write the parquet file.
 
 # COMMAND ----------
