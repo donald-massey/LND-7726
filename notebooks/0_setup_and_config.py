@@ -88,24 +88,43 @@ except NameError:
 from utils.database_utils import DatabaseConnection
 
 
-def get_db_connection(db_name: str) -> DatabaseConnection:
+def get_db_connection(
+    *,
+    db_name: str,
+    server: str,
+    username: str = "",
+    password: str = "",
+    dry_run: bool = True,
+) -> DatabaseConnection:
     """
-    Return a live pyodbc database connection for *db_name*.
+    Return a live pyodbc database connection using explicit keyword arguments.
     """
     conn = DatabaseConnection(
         db_name=db_name,
-        server=DB_SERVER,
-        username=DB_USERNAME,
-        password=DB_PASSWORD,
-        dry_run=DRY_RUN,
+        server=server,
+        username=username,
+        password=password,
+        dry_run=dry_run,
     )
     conn.connect()
     return conn
 
 
 # Instantiate connections to both databases.
-db1 = get_db_connection(DB_NAME_1)
-db2 = get_db_connection(DB_NAME_2)
+db1 = get_db_connection(
+    db_name=DB_NAME_1,
+    server=DB_SERVER,
+    username=DB_USERNAME,
+    password=DB_PASSWORD,
+    dry_run=DRY_RUN,
+)
+db2 = get_db_connection(
+    db_name=DB_NAME_2,
+    server=DB_SERVER,
+    username=DB_USERNAME,
+    password=DB_PASSWORD,
+    dry_run=DRY_RUN,
+)
 
 DATABASES = {DB_NAME_1: db1, DB_NAME_2: db2}
 logger.info("Database connections ready: %s", list(DATABASES.keys()))
