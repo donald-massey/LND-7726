@@ -68,3 +68,7 @@ ROLLBACK TRAN;
 --COMMIT TRAN;
 
 SELECT @@TRANCOUNT, XACT_STATE();
+
+SELECT COUNT(*)
+FROM CS_Digital.dbo.tblS3Image
+WHERE s3FilePath LIKE '%enverus-courthouse-dev-chd-plants%'
