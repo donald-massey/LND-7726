@@ -203,3 +203,48 @@ def rows_to_spark_df(rows: list[dict], schema=None):
         return rows
     return spark.createDataFrame(rows, schema=schema) if rows else spark.createDataFrame([], schema)
 
+# COMMAND ----------
+
+# MAGIC %md ## 7. Create staging table tbls3Image_LND7726 in both databases
+
+# COMMAND ----------
+
+# Drop the staging table if it already exists so this cell is idempotent.
+_DROP_STAGING_SQL = (
+    "IF OBJECT_ID('dbo.tbls3Image_LND7726', 'U') IS NOT NULL "
+    "DROP TABLE dbo.tbls3Image_LND7726"
+)
+
+# Select all tblS3Image columns and add corrected_s3_path.
+# For rows where CountyName differs from S3Key and the path contains the old
+# county folder segment, replace that segment with S3Key.  All other rows get
+# corrected_s3_path equal to the original s3FilePath.
+_CREATE_STAGING_SQL = """
+SELECT
+    i.*,
+    CASE
+        WHEN c.CountyName IS NOT NULL
+         AND c.CountyName <> c.S3Key
+         AND i.s3FilePath LIKE '%/' + c.CountyName + '/%'
+        THEN REPLACE(i.s3FilePath, '/' + c.CountyName + '/', '/' + c.S3Key + '/')
+        ELSE i.s3FilePath
+    END AS corrected_s3_path
+INTO dbo.tbls3Image_LND7726
+FROM tblS3Image i
+JOIN tblRecord r ON r.recordId = i.recordID
+LEFT JOIN tblLookupCounties c ON r.countyID = c.CountyID
+"""
+
+for _db_label, _conn in DATABASES.items():
+    log_section(f"Creating tbls3Image_LND7726 in {_db_label}")
+    try:
+        _conn.begin_transaction()
+        _conn.execute_update(_DROP_STAGING_SQL)
+        _conn.execute_update(_CREATE_STAGING_SQL)
+        _conn.commit()
+        logger.info("[%s] tbls3Image_LND7726 created successfully.", _db_label)
+    except Exception as _exc:
+        _conn.rollback()
+        logger.error("[%s] Failed to create tbls3Image_LND7726: %s", _db_label, _exc)
+        raise
+
