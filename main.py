@@ -74,7 +74,7 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT TOP 1000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 100000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
     import boto3
@@ -85,13 +85,11 @@ def main():
         try:
             sts = boto3.client('sts')
             identity = sts.get_caller_identity()
-            print(f"✅ Credentials valid — Account: {identity['Account']}, ARN: {identity['Arn']}")
+            # print(f"✅ Credentials valid — Account: {identity['Account']}, ARN: {identity['Arn']}")
             return True
         except (ClientError, NoCredentialsError) as e:
             print(f"❌ Credentials invalid: {e}")
             return False
-
-    test = credentials_are_valid()
 
     results = []
     start_time = datetime.now()
