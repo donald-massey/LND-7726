@@ -3,8 +3,11 @@ from __future__ import annotations  # must be the FIRST import in the file
 import os
 import logging
 from pathlib import Path
+from datetime import datetime
 from pebble import ProcessPool
 from concurrent.futures import TimeoutError
+
+from utils.s3_utils import S3Client
 
 
 def main():
@@ -12,7 +15,7 @@ def main():
     from utils.database_utils import DatabaseConnection
 
     logger = logging.getLogger("LND-7726.main")
-    MAX_WORKERS = 8  # Adjust based on your system/resources
+    MAX_WORKERS = 16  # Adjust based on your system/resources
     TASK_TIMEOUT = 30  # seconds per task
 
     # ---------------------------------------------------------------------------
@@ -71,20 +74,39 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT TOP 10 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 1000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
-    results = []
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError
 
+    def credentials_are_valid():
+        """Check if current AWS credentials are still valid by making a lightweight API call."""
+        try:
+            sts = boto3.client('sts')
+            identity = sts.get_caller_identity()
+            print(f"✅ Credentials valid — Account: {identity['Account']}, ARN: {identity['Arn']}")
+            return True
+        except (ClientError, NoCredentialsError) as e:
+            print(f"❌ Credentials invalid: {e}")
+            return False
+
+    test = credentials_are_valid()
+
+    results = []
+    start_time = datetime.now()
     with ProcessPool(max_workers=MAX_WORKERS) as pool:
         future = pool.map(process_record, csd_list, timeout=TASK_TIMEOUT)
         iterator = future.result()
 
         while True:
             try:
-                result = next(iterator)
-                logger.info(f"Completed: {result}")
-                results.append(result)
+                if credentials_are_valid():
+                    result = next(iterator)
+                    logger.info(f"Completed: {result}")
+                    results.append(result)
+                else:
+                    raise StopIteration
             except StopIteration:
                 break
             except TimeoutError as e:
@@ -97,7 +119,7 @@ def main():
     succeeded = sum(1 for r in results if r.get("status") == "success")
     failed = len(results) - succeeded
     logger.info(f"Processing complete: {succeeded} succeeded, {failed} failed out of {len(csd_list)} total")
-
+    logger.info(f"Elapsed Time: {datetime.now() - start_time}")
 
 if __name__ == '__main__':
 
