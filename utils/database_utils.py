@@ -8,6 +8,9 @@ Wraps a real pyodbc connection to a SQL Server instance.
 Requires the ODBC Driver 18 for SQL Server to be installed.
 """
 
+import ast
+import time
+import random
 import logging
 from typing import Any
 
@@ -126,149 +129,66 @@ class DatabaseConnection:
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def execute_update(self, sql: str, params: list | None = None) -> int:
+    def execute_update(self, sql: str, params: list | None = None, max_retries: int = 5) -> int:
         """
         Execute an INSERT / UPDATE / DELETE statement.
 
         In DRY_RUN mode the statement is logged but not applied and 0 is returned.
         Otherwise returns the number of rows affected (``cursor.rowcount``).
 
+        Automatically retries on deadlock errors with exponential backoff + jitter.
+
         Parameters
         ----------
-        sql    : SQL DML statement
-        params : optional positional parameters as a list (passed to pyodbc)
+        sql         : SQL DML statement
+        params      : optional positional parameters as a list (passed to pyodbc)
+        max_retries : number of attempts before raising (default 3)
         """
         logger.info(
             "[%s] UPDATE (dry_run=%s): %s | params=%s",
             self.db_name, self.dry_run, sql.strip(), params,
         )
-        if self.dry_run:
+        if ast.literal_eval(self.dry_run) == True:
             logger.info("[%s] DRY RUN — no changes written.", self.db_name)
             return 0
         if self._conn is None:
             raise RuntimeError(
                 f"[{self.db_name}] Not connected. Call connect() first."
             )
-        cursor = self._conn.cursor()
-        if params:
-            cursor.execute(sql, params)
-        else:
-            cursor.execute(sql)
-        rows_affected = cursor.rowcount
-        logger.info("[%s] %d row(s) affected.", self.db_name, rows_affected)
-        return rows_affected
 
+        for attempt in range(max_retries):
+            try:
+                cursor = self._conn.cursor()
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
+                cursor.commit()
+                rows_affected = cursor.rowcount
+                logger.info("[%s] %d row(s) affected.", self.db_name, rows_affected)
+                return rows_affected
 
-# ---------------------------------------------------------------------------
-# Query builders
-# ---------------------------------------------------------------------------
-
-def build_discovery_query(state_prefix: str = "tx") -> str:
-    """
-    Return the SQL that identifies county folders with numeric suffixes
-    whose path segment does not match the canonical S3Key.
-    """
-    return f"""
-    SELECT
-        i.s3FilePath,
-        r.recordId,
-        c.CountyID,
-        c.CountyName,
-        c.S3Key,
-        c.DIMLCountyName
-    FROM tblS3Image i
-    JOIN tblRecord r ON r.recordId = i.recordID
-    JOIN tblLookupCounties c ON r.countyID = c.CountyID
-    WHERE i.s3FilePath LIKE '%/{state_prefix}/%'
-      AND i.s3FilePath LIKE '%/' + c.CountyName + '/%'
-      AND (
-            c.CountyName LIKE '%1'
-         OR c.CountyName LIKE '%2'
-         OR c.CountyName LIKE '%3'
-      )
-      AND c.CountyName <> c.S3Key
-    ORDER BY COUNT(*) OVER (PARTITION BY c.CountyID) DESC, c.CountyName
-    """
-
-
-def build_update_path_query(old_county_folder: str, new_county_folder: str, county_id: int) -> str:
-    """
-    Return the SQL that replaces old county folder segments in s3FilePath
-    for a specific county (scoped by countyID to avoid cross-county edits).
-    """
-    return f"""
-    UPDATE tblS3Image
-    SET s3FilePath = REPLACE(s3FilePath, '/{old_county_folder}/', '/{new_county_folder}/')
-    WHERE s3FilePath LIKE '%/{old_county_folder}/%'
-      AND recordID IN (
-          SELECT recordId FROM tblRecord WHERE countyID = {county_id}
-      )
-    """
-
-
-def build_count_query(old_county_folder: str, county_id: int) -> str:
-    """
-    Return the SELECT COUNT(*) equivalent of build_update_path_query —
-    used in DRY_RUN mode to preview the number of rows that would be updated.
-    """
-    return f"""
-    SELECT COUNT(*) AS affected_rows
-    FROM tblS3Image
-    WHERE s3FilePath LIKE '%/{old_county_folder}/%'
-      AND recordID IN (
-          SELECT recordId FROM tblRecord WHERE countyID = {county_id}
-      )
-    """
-
-
-# ---------------------------------------------------------------------------
-# Batch update helper
-# ---------------------------------------------------------------------------
-
-def batch_update_paths(
-    conn: DatabaseConnection,
-    migration_map: list[dict],
-    batch_size: int = 100,
-) -> dict[str, int]:
-    """
-    Apply path updates for every county in *migration_map* using the
-    supplied connection, committing after each batch.
-
-    Parameters
-    ----------
-    conn           : database connection
-    migration_map  : list of dicts with keys:
-                       old_county_folder, new_county_folder, county_id
-    batch_size     : rows per commit (reserved for future use)
-
-    Returns
-    -------
-    dict mapping county_id → rows_affected
-    """
-    results: dict[str, int] = {}
-
-    for entry in migration_map:
-        old_folder = entry["old_county_folder"]
-        new_folder = entry["new_county_folder"]
-        county_id  = entry["county_id"]
-
-        if conn.dry_run:
-            sql = build_count_query(old_folder, county_id)
-        else:
-            sql = build_update_path_query(old_folder, new_folder, county_id)
-
-        try:
-            conn.begin_transaction()
-            rows = conn.execute_update(sql)
-            conn.commit()
-            results[str(county_id)] = rows
-            logger.info(
-                "County %s: %s → %s, rows_affected=%d",
-                county_id, old_folder, new_folder, rows,
-            )
-        except Exception as exc:
-            conn.rollback()
-            logger.error("County %s update failed: %s", county_id, exc)
-            results[str(county_id)] = -1
-
-    return results
+            except Exception as e:
+                if "deadlock" in str(e).lower() and attempt < max_retries - 1:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "[%s] Deadlock detected on attempt %d/%d, retrying in %.1fs: %s",
+                        self.db_name, attempt + 1, max_retries, wait, sql.strip(),
+                    )
+                    time.sleep(wait)
+                    # Reconnect in case the connection is in a bad state after deadlock
+                    try:
+                        self.close()
+                        self.connect()
+                    except Exception as reconnect_err:
+                        logger.error(
+                            "[%s] Failed to reconnect after deadlock: %s",
+                            self.db_name, reconnect_err,
+                        )
+                        raise e from reconnect_err
+                else:
+                    logger.error(
+                        "[%s] execute_update failed after %d attempt(s): %s",
+                        self.db_name, attempt + 1, e,
+                    )
+                    raise

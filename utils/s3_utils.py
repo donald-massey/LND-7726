@@ -76,51 +76,6 @@ class S3Client:
 # High-level helpers used by the notebooks
 # ---------------------------------------------------------------------------
 
-def get_s3_key_from_path(s3_full_path: str, bucket: str) -> str:
-    """
-    Strip the ``s3://<bucket>/`` prefix from a full S3 URI and return
-    the object key.
-
-    Example
-    -------
-    >>> get_s3_key_from_path(
-    ...     "s3://enverus-courthouse-prod-chd-plants/tx/crockett2/e1ed/file.pdf",
-    ...     "enverus-courthouse-prod-chd-plants",
-    ... )
-    'tx/crockett2/e1ed/file.pdf'
-    """
-    prefix = f"s3://{bucket}/"
-    if s3_full_path.startswith(prefix):
-        return s3_full_path[len(prefix):]
-    raise ValueError(f"Path '{s3_full_path}' does not belong to bucket '{bucket}'")
-
-
-def replace_county_folder(s3_key: str, old_folder: str, new_folder: str) -> str:
-    """
-    Replace the county folder segment in an S3 object key.
-
-    The replacement targets ``/<old_folder>/`` segments only to avoid
-    partial matches.  The search is case-sensitive — callers should
-    ensure *old_folder* exactly matches the case used in *s3_key*.
-
-    Example
-    -------
-    >>> replace_county_folder(
-    ...     "tx/crockett2/e1ed/file.pdf",
-    ...     "crockett2",
-    ...     "crockett",
-    ... )
-    'tx/crockett/e1ed/file.pdf'
-    """
-    segment = f"/{old_folder}/"
-    replacement = f"/{new_folder}/"
-    if segment not in s3_key:
-        raise ValueError(
-            f"County folder '/{old_folder}/' not found in key '{s3_key}'"
-        )
-    return s3_key.replace(segment, replacement, 1)
-
-
 def copy_and_verify(
     client: S3Client,
     src_key: str,
@@ -137,6 +92,11 @@ def copy_and_verify(
     do not call this function when dry-run mode is active.
     """
     result: dict[str, Any] = {"src": src_key, "dst": dst_key}
+
+    # Strip s3:// prefix and bucket name if accidentally included
+    src_key = src_key.replace(f"s3://{client.bucket}/", "")
+    dst_key = dst_key.replace(f"s3://{client.bucket}/", "")
+
     try:
         client.copy_object(
             CopySource={"Bucket": client.bucket, "Key": src_key},
@@ -152,26 +112,3 @@ def copy_and_verify(
         result["error"] = str(exc)
         logger.error("copy_and_verify failed: %s → %s: %s", src_key, dst_key, exc)
     return result
-
-
-def list_county_objects(
-    client: S3Client,
-    state_prefix: str,
-    county_folder: str,
-) -> list[dict[str, Any]]:
-    """
-    Return all S3 objects under ``<state_prefix>/<county_folder>/``.
-    """
-    prefix = f"{state_prefix}/{county_folder}/"
-    response = client.list_objects_v2(Bucket=client.bucket, Prefix=prefix)
-    return response.get("Contents", [])
-
-
-def county_folder_exists(
-    client: S3Client,
-    state_prefix: str,
-    county_folder: str,
-) -> bool:
-    """Return True if at least one object exists under the county folder prefix."""
-    objects = list_county_objects(client, state_prefix, county_folder)
-    return len(objects) > 0

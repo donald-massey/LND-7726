@@ -72,6 +72,7 @@ MIGRATION_MAP_PATH: str = _get_widget_or_env(
 )
 
 # COMMAND ----------
+
 # MAGIC %md ## 0. Load migration map from parquet or Delta table
 
 # COMMAND ----------
@@ -131,6 +132,7 @@ MIGRATION_MAP = load_migration_map()
 logger.info("Migration map: %d total path entries", len(MIGRATION_MAP))
 
 # COMMAND ----------
+
 # MAGIC %md ## 1. Verify every tblS3Image record has a matching S3 object
 
 # COMMAND ----------
@@ -154,6 +156,7 @@ for db_name, conn in DATABASES.items():
     verification_results[db_name] = result
 
 # COMMAND ----------
+
 # MAGIC %md ## 2. Check for stale references to old county folder names in tblS3Image
 
 # COMMAND ----------
@@ -181,6 +184,7 @@ for db_name, conn in DATABASES.items():
                        db_name, len(stale_rows))
 
 # COMMAND ----------
+
 # MAGIC %md ## 3. Check for remaining objects in old S3 folders
 
 # COMMAND ----------
@@ -195,6 +199,7 @@ for old_folder in old_folders:
                        STATE_PREFIX, old_folder, len(objects))
 
 # COMMAND ----------
+
 # MAGIC %md ## 4. Reconciliation report
 
 # COMMAND ----------
@@ -249,6 +254,7 @@ for old_folder, objects in old_folder_remnants.items():
         print(f"  ✅  '{STATE_PREFIX}/{old_folder}/' is empty.")
 
 # COMMAND ----------
+
 # MAGIC %md ## 5. Final determination
 
 # COMMAND ----------
@@ -272,6 +278,7 @@ if DRY_RUN:
     print("\n  ℹ️  Note: Running in DRY RUN mode.\n")
 
 # COMMAND ----------
+
 # MAGIC %md ## 6. Persist verification report
 
 # COMMAND ----------

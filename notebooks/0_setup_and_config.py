@@ -39,9 +39,6 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Derive REPO_ROOT from the notebook's actual workspace path.
-# notebookPath() returns a workspace-relative path (e.g. /Users/.../LND-7726/notebooks/0_setup_and_config)
-# Filesystem operations require the /Workspace prefix.
 _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 REPO_ROOT = Path(f"/Workspace{_nb_path}").parent.parent
 
@@ -209,42 +206,90 @@ def rows_to_spark_df(rows: list[dict], schema=None):
 
 # COMMAND ----------
 
-# Drop the staging table if it already exists so this cell is idempotent.
-_DROP_STAGING_SQL = (
-    "IF OBJECT_ID('dbo.tbls3Image_LND7726', 'U') IS NOT NULL "
-    "DROP TABLE dbo.tbls3Image_LND7726"
-)
+# _CREATE_CSD_STAGING_SQL = """
+# WITH SplitData AS (
+# 	SELECT
+# 	    recordID,
+# 		s3FilePath,
+# 		value AS part,
+# 		ROW_NUMBER() OVER (PARTITION BY recordID ORDER BY (SELECT NULL)) AS part_number
+# 	FROM CS_Digital.dbo.tblS3Image
+# 	CROSS APPLY STRING_SPLIT(s3FilePath, '/')
+# 	WHERE value NOT LIKE '%none%'
+# ),
+# CountiesToFix AS (
+# 	SELECT 
+# 		recordID,
+# 		s3FilePath,
+# 		part AS original_county_name,
+# 		CASE	
+# 			WHEN part LIKE '%1' THEN LEFT(part, LEN(part) - 1)
+# 			WHEN part LIKE '%2' THEN LEFT(part, LEN(part) - 1)
+# 			WHEN part LIKE '%3' THEN LEFT(part, LEN(part) - 1)
+# 			ELSE part
+# 		END AS corrected_county_name
+# 	FROM SplitData
+# 	WHERE part_number = 5 
+# 		AND (part LIKE '%1' OR part LIKE '%2' OR part LIKE '%3')
+# )
+# SELECT 
+# 	recordID,
+# 	s3FilePath AS old_s3FilePath,
+# 	REPLACE(s3FilePath, '/' + original_county_name + '/', '/' + corrected_county_name + '/') AS new_s3FilePath,
+# 	0 as Processed
+# INTO CS_Digital.dbo.tblS3Image_LND7726
+# FROM CountiesToFix
+# """
 
-# Select all tblS3Image columns and add corrected_s3_path.
-# For rows where CountyName differs from S3Key and the path contains the old
-# county folder segment, replace that segment with S3Key.  All other rows get
-# corrected_s3_path equal to the original s3FilePath.
-_CREATE_STAGING_SQL = """
-SELECT
-    i.*,
-    CASE
-        WHEN c.CountyName IS NOT NULL
-         AND c.CountyName <> c.S3Key
-         AND i.s3FilePath LIKE '%/' + c.CountyName + '/%'
-        THEN REPLACE(i.s3FilePath, '/' + c.CountyName + '/', '/' + c.S3Key + '/')
-        ELSE i.s3FilePath
-    END AS corrected_s3_path
-INTO dbo.tbls3Image_LND7726
-FROM tblS3Image i
-JOIN tblRecord r ON r.recordId = i.recordID
-LEFT JOIN tblLookupCounties c ON r.countyID = c.CountyID
-"""
+# _CREATE_CST_STAGING_SQL = """
+# WITH SplitData AS (
+# 	SELECT
+# 	    recordID,
+# 		s3FilePath,
+# 		value AS part,
+# 		ROW_NUMBER() OVER (PARTITION BY recordID ORDER BY (SELECT NULL)) AS part_number
+# 	FROM countyScansTitle.dbo.tblS3Image
+# 	CROSS APPLY STRING_SPLIT(s3FilePath, '/')
+# 	WHERE value NOT LIKE '%none%'
+# ),
+# CountiesToFix AS (
+# 	SELECT 
+# 		recordID,
+# 		s3FilePath,
+# 		part AS original_county_name,
+# 		CASE	
+# 			WHEN part LIKE '%1' THEN LEFT(part, LEN(part) - 1)
+# 			WHEN part LIKE '%2' THEN LEFT(part, LEN(part) - 1)
+# 			WHEN part LIKE '%3' THEN LEFT(part, LEN(part) - 1)
+# 			ELSE part
+# 		END AS corrected_county_name
+# 	FROM SplitData
+# 	WHERE part_number = 5 
+# 		AND (part LIKE '%1' OR part LIKE '%2' OR part LIKE '%3')
+# )
+# SELECT 
+# 	recordID,
+# 	s3FilePath AS old_s3FilePath,
+# 	REPLACE(s3FilePath, '/' + original_county_name + '/', '/' + corrected_county_name + '/') AS new_s3FilePath,
+# 	0 AS Processed
+# INTO countyScansTitle.dbo.tblS3Image_LND7726
+# FROM CountiesToFix
+# """
 
-for _db_label, _conn in DATABASES.items():
-    log_section(f"Creating tbls3Image_LND7726 in {_db_label}")
-    try:
-        _conn.begin_transaction()
-        _conn.execute_update(_DROP_STAGING_SQL)
-        _conn.execute_update(_CREATE_STAGING_SQL)
-        _conn.commit()
-        logger.info("[%s] tbls3Image_LND7726 created successfully.", _db_label)
-    except Exception as _exc:
-        _conn.rollback()
-        logger.error("[%s] Failed to create tbls3Image_LND7726: %s", _db_label, _exc)
-        raise
+# for _db_label, _conn in DATABASES.items():
+#     log_section(f"Creating tbls3Image_LND7726 in {_db_label}")
+#     print(f"_db_label: {_db_label.lower()}")
+#     try:
+#         _conn.begin_transaction()
+#         _conn.execute_update(_DROP_STAGING_SQL)
+#         if _db_label.lower() == "csd_db":
+#             _conn.execute_update(_CREATE_CSD_STAGING_SQL)
+#         else:
+#             _conn.execute_update(_CREATE_CST_STAGING_SQL)
+#         _conn.commit()
+#         logger.info("[%s] tbls3Image_LND7726 created successfully.", _db_label)
+#     except Exception as _exc:
+#         _conn.rollback()
+#         logger.error("[%s] Failed to create tbls3Image_LND7726: %s", _db_label, _exc)
+#         raise
 
