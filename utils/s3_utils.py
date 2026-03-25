@@ -1,3 +1,4 @@
+from __future__ import annotations  # must be the FIRST import in the file
 """
 s3_utils.py
 ===========

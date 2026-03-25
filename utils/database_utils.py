@@ -1,3 +1,4 @@
+from __future__ import annotations  # must be the FIRST import in the file
 """
 database_utils.py
 =================
@@ -63,7 +64,7 @@ class DatabaseConnection:
         import pyodbc  # noqa: PLC0415
 
         conn_str = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
             f"SERVER={self.server};"
             f"DATABASE={self.db_name};"
             f"UID={self.username};"
@@ -105,7 +106,7 @@ class DatabaseConnection:
     # Query helpers
     # ------------------------------------------------------------------
 
-    def execute_query(self, sql: str, params: list | None = None) -> list[dict[str, Any]]:
+    def execute_query(self, sql: str, params: list) -> list[dict[str, Any]]:
         """
         Execute a SELECT query and return a list of row dicts.
 
@@ -129,7 +130,7 @@ class DatabaseConnection:
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def execute_update(self, sql: str, params: list | None = None, max_retries: int = 5) -> int:
+    def execute_update(self, sql: str, params: list, max_retries: int = 5) -> int:
         """
         Execute an INSERT / UPDATE / DELETE statement.
 
