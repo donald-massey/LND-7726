@@ -84,8 +84,6 @@ def main():
     batched_list = chunk_list(csd_list, batch_size=1000)
     logger.info(f"Split {len(csd_list)} records into {len(batched_list)} batches")
 
-
-
     results = []
     start_time = datetime.now()
     with ProcessPool(max_workers=MAX_WORKERS) as pool:
