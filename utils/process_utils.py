@@ -82,18 +82,6 @@ def process_record(batch):
 
     from utils.s3_utils import S3Client
 
-    def get_s3_client() -> S3Client:
-        """
-        Return a boto3-backed S3 client for the configured bucket.
-
-        AWS credentials are resolved via the standard boto3 credential chain:
-        environment variables (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY),
-        ~/.aws/credentials, or an IAM instance/service role.
-        """
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        return S3Client(bucket=os.environ.get("S3_BUCKET", None), region=region)
-
-
     s3_bucket = os.environ.get("S3_BUCKET")
     s3_client = S3Client(bucket=s3_bucket)
     logger.info("S3 client ready: bucket=%s", os.environ.get("S3_BUCKET", None))
