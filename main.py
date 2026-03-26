@@ -15,7 +15,7 @@ def main():
     from utils.database_utils import DatabaseConnection
 
     logger = logging.getLogger("LND-7726.main")
-    MAX_WORKERS = 16  # Adjust based on your system/resources
+    MAX_WORKERS = 8  # Adjust based on your system/resources
     TASK_TIMEOUT = 30  # seconds per task
 
     # ---------------------------------------------------------------------------
@@ -77,26 +77,33 @@ def main():
     csd_list = csd_conn.execute_query("SELECT * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
+    def chunk_list(items, batch_size=1000):
+        """Split items into batches of batch_size."""
+        return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+
+    batched_list = chunk_list(csd_list, batch_size=1000)
+    logger.info(f"Split {len(csd_list)} records into {len(batched_list)} batches")
+
 
 
     results = []
     start_time = datetime.now()
     with ProcessPool(max_workers=MAX_WORKERS) as pool:
-        future = pool.map(process_record, csd_list, timeout=TASK_TIMEOUT)
+        future = pool.map(process_record, batched_list, timeout=TASK_TIMEOUT)
         iterator = future.result()
 
         while True:
             try:
-                result = next(iterator)
-                logger.info(f"Completed: {result}")
-                results.append(result)
+                batch_result = next(iterator)
+                logger.info(f"Completed batch with {len(batch_result)} records")
+                results.extend(batch_result)
             except StopIteration:
                 break
             except TimeoutError as e:
-                logger.error(f"Task timed out: {e}")
+                logger.error(f"Batch timed out: {e}")
                 results.append({"status": "timeout", "error": str(e)})
             except Exception as e:
-                logger.error(f"Task failed: {e}")
+                logger.error(f"Batch failed: {e}")
                 results.append({"status": "error", "error": str(e)})
 
     succeeded = sum(1 for r in results if r.get("status") == "success")

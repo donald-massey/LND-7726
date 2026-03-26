@@ -1,6 +1,6 @@
-def process_record(row_dict):
+def process_record(batch):
     """
-    Process a single record: copy, delete, and update DB.
+    Process a batch of records: copy, delete, and update DB.
     Must be a top-level function for pickling by multiprocessing.
     Each process creates its own S3 client and DB connection.
     """
@@ -94,53 +94,55 @@ def process_record(row_dict):
         return S3Client(bucket=os.environ.get("S3_BUCKET", None), region=region)
 
 
-    s3_client = get_s3_client()
-    logger.info("S3 client ready: bucket=%s", os.environ.get("S3_BUCKET", None))
-
-    record_id = row_dict["recordID"]
-    old_s3_path = row_dict["old_s3FilePath"]
-    new_s3_path = row_dict["new_s3FilePath"]
-
     s3_bucket = os.environ.get("S3_BUCKET")
     s3_client = S3Client(bucket=s3_bucket)
+    logger.info("S3 client ready: bucket=%s", os.environ.get("S3_BUCKET", None))
     csd_conn = DATABASES["CSD_DB"]
 
-    if credentials_are_valid():
-        try:
-            # Copy old_s3_path to new_s3_path
-            copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
-            logger.info(f"copy_result: {copy_result}")
-            if "error" in copy_result:
-                raise Exception(f"Error copying {old_s3_path} to {new_s3_path}: {copy_result['error']}")
+    batch_results = []
+    for row_dict in batch:
+        record_id = row_dict["recordID"]
+        old_s3_path = row_dict["old_s3FilePath"]
+        new_s3_path = row_dict["new_s3FilePath"]
 
-            # Delete old_s3_path
-            delete_result = s3_client.delete_object(
-                Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
-            )
-            logger.info(f"delete_result: {delete_result}")
-
-            # Update DB with new path and mark as processed
-            csd_conn.connect()
-            csd_conn.execute_update(
-                f"UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = '{new_s3_path}' WHERE recordID = '{record_id}'"
-            , params=[])
-            csd_conn.execute_update(
-                f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = '{record_id}'"
-            , params=[])
-            csd_conn.close()
-            logger.info(f"record_id: {record_id} status: success")
-            return {"record_id": record_id, "status": "success"}
-
-        except Exception as e:
-            logger.error(f"Error processing {record_id}: {e}")
+        if credentials_are_valid():
             try:
+                # Copy old_s3_path to new_s3_path
+                copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
+                logger.info(f"copy_result: {copy_result}")
+                if "error" in copy_result:
+                    raise Exception(f"Error copying {old_s3_path} to {new_s3_path}: {copy_result['error']}")
+
+                # Delete old_s3_path
+                delete_result = s3_client.delete_object(
+                    Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
+                )
+                logger.info(f"delete_result: {delete_result}")
+
+                # Update DB with new path and mark as processed
                 csd_conn.connect()
                 csd_conn.execute_update(
-                    f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = -1 WHERE recordID = '{record_id}'"
+                    f"UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = '{new_s3_path}' WHERE recordID = '{record_id}'"
+                , params=[])
+                csd_conn.execute_update(
+                    f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = '{record_id}'"
                 , params=[])
                 csd_conn.close()
-            except Exception as db_err:
-                logger.error(f"Failed to update error status for {record_id}: {db_err}")
-            return {"record_id": record_id, "status": "error", "error": str(e)}
-    else:
-        return {"record_id": record_id, "status": "Credentials Expired"}
+                logger.info(f"record_id: {record_id} status: success")
+                batch_results.append({"record_id": record_id, "status": "success"})
+
+            except Exception as e:
+                logger.error(f"Error processing {record_id}: {e}")
+                try:
+                    csd_conn.connect()
+                    csd_conn.execute_update(
+                        f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = -1 WHERE recordID = '{record_id}'"
+                    , params=[])
+                    csd_conn.close()
+                except Exception as db_err:
+                    logger.error(f"Failed to update error status for {record_id}: {db_err}")
+                batch_results.append({"record_id": record_id, "status": "error", "error": str(e)})
+        else:
+            batch_results.append({"record_id": record_id, "status": "Credentials Expired"})
+
+    return batch_results
