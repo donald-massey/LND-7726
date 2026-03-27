@@ -135,11 +135,9 @@ FROM CS_Digital.dbo.tblS3Image
 WHERE recordID IN (SELECT recordID FROM CS_Digital.dbo.tblS3Image_LND7726 WHERE Processed =1)
 
 SELECT COUNT(*), Processed
-FROM CS_Digital.dbo.tblS3Image_LND7726
+FROM CS_Digital.dbo.tblS3Image_LND7726 WITH (NOLOCK)
 GROUP BY Processed
 
 SELECT TOP 10 *
 FROM CS_Digital.dbo.tblS3Image_LND7726
 WHERE Processed = -1
-
-

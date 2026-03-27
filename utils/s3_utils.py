@@ -73,6 +73,29 @@ class S3Client:
         """Delegate to boto3 ``delete_object``."""
         return self._client.delete_object(**kwargs)
 
+    def upload_file(self, file_path: str, key: str) -> bool:
+        """
+        Upload a file from a network or local path to the target S3 bucket.
+
+        Parameters
+        ----------
+        file_path : str
+            Local or network (UNC) path to the source file.
+        key : str
+            S3 object key (destination path within the bucket).
+
+        Returns
+        -------
+        bool
+            ``True`` if the upload succeeded, ``False`` otherwise.
+        """
+        try:
+            self._client.upload_file(Filename=file_path, Bucket=self.bucket, Key=key)
+            logger.info("Uploaded %s → s3://%s/%s", file_path, self.bucket, key)
+            return True
+        except Exception:
+            logger.exception("Failed to upload %s → s3://%s/%s", file_path, self.bucket, key)
+            return False
 
 # ---------------------------------------------------------------------------
 # High-level helpers used by the notebooks

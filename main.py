@@ -3,20 +3,13 @@ from __future__ import annotations  # must be the FIRST import in the file
 import os
 import logging
 from pathlib import Path
-from datetime import datetime
-from pebble import ProcessPool
-from concurrent.futures import TimeoutError
 
 from utils.s3_utils import S3Client
+from utils.database_utils import DatabaseConnection
 
 
 def main():
-    from utils.process_utils import process_record
-    from utils.database_utils import DatabaseConnection
-
     logger = logging.getLogger("LND-7726.main")
-    MAX_WORKERS = 8  # Adjust based on your system/resources
-    TASK_TIMEOUT = 900  # seconds per task
 
     # ---------------------------------------------------------------------------
     # Config defaults
@@ -52,16 +45,15 @@ def main():
         conn.connect()
         return conn
 
-
     # Instantiate connections to both databases.
-    countyScansTitle = get_db_connection(
+    county_scans_title = get_db_connection(
         db_name=os.environ.get("CST_DB", None),
         server=os.environ.get("CST_SERVER", None),
         username=os.environ.get("CST_USERNAME", None),
         password=os.environ.get("CST_PASSWORD", None),
         dry_run=os.environ.get("DRY_RUN", True),
     )
-    CS_Digital = get_db_connection(
+    cs_digital = get_db_connection(
         db_name=os.environ.get("CSD_DB", None),
         server=os.environ.get("CSD_SERVER", None),
         username=os.environ.get("CSD_USERNAME", None),
@@ -69,45 +61,36 @@ def main():
         dry_run=os.environ.get("DRY_RUN", True),
     )
 
-    DATABASES = {"CST_DB": countyScansTitle, "CSD_DB": CS_Digital}
+    DATABASES = {"CST_DB": county_scans_title, "CSD_DB": cs_digital}
     logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
-    csd_conn = DATABASES["CSD_DB"]
-    csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
-    csd_conn.close()
+    cst_conn = DATABASES["CST_DB"]
+    cst_conn.connect()
+    cst_list = cst_conn.execute_query("""SELECT TOP 1 tr.recordID, CONCAT(storageFilePath, '\\', originalFileName, fileType) as source_file_path,
+                                             new_s3FilePath as new_s3filepath
+                                             FROM countyScansTitle.dbo.tblrecord tr
+                                             LEFT JOIN countyScansTitle.dbo.tblS3Image_LND7726 s3 ON s3.recordID = tr.recordID
+                                             WHERE s3.Processed = -1""", params=[])
+    cst_conn.close()
+    s3_client = S3Client(bucket=os.environ.get("S3_BUCKET", None))
 
-    def chunk_list(items, batch_size=100):
-        """Split items into batches of batch_size."""
-        return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+    for _ in cst_list:
+        record_id = _["recordID"]
+        new_s3filepath = _["new_s3filepath"]
+        source_file_path = _["source_file_path"]
+        logger.info(f"record_id: {record_id}, new_s3filepath: {new_s3filepath}, source_file_path: {source_file_path}")
+        if os.path.exists(source_file_path):
+            upload_result = s3_client.upload_file(source_file_path, new_s3filepath.replace(f"s3://{S3_BUCKET}/", "").lower())
+            logger.info(f"Successfully uploaded {source_file_path} to {new_s3filepath}")
 
-    batched_list = chunk_list(csd_list)
-    logger.info(f"Split {len(csd_list)} records into {len(batched_list)} batches")
+            if upload_result:
+                cst_conn.connect()
+                cst_conn.execute_update(f"""UPDATE countyScansTitle.dbo.tblS3Image WITH (ROWLOCK) 
+                                            SET s3FilePath = '{new_s3filepath}' WHERE recordID = '{record_id}'""", params=[])
+                cst_conn.execute_update(f"""UPDATE countyScansTitle.dbo.tblS3Image_LND7726 WITH (ROWLOCK)
+                                                SET Processed = 1 WHERE recordID = '{record_id}'""", params=[])
+                cst_conn.close()
 
-    results = []
-    start_time = datetime.now()
-    with ProcessPool(max_workers=MAX_WORKERS) as pool:
-        future = pool.map(process_record, batched_list, timeout=TASK_TIMEOUT)
-        iterator = future.result()
-
-        while True:
-            try:
-                batch_result = next(iterator)
-                logger.info(f"Completed batch with {len(batch_result)} records")
-                results.extend(batch_result)
-            except StopIteration:
-                break
-            except TimeoutError as e:
-                logger.error(f"Batch timed out: {e}")
-                results.append({"status": "timeout", "error": str(e)})
-            except Exception as e:
-                logger.error(f"Batch failed: {e}")
-                results.append({"status": "error", "error": str(e)})
-
-    succeeded = sum(1 for r in results if r.get("status") == "success")
-    failed = len(results) - succeeded
-    logger.info(f"Processing complete: {succeeded} succeeded, {failed} failed out of {len(csd_list)} total")
-    logger.info(f"Elapsed Time: {datetime.now() - start_time}")
 
 if __name__ == '__main__':
 
@@ -133,7 +116,6 @@ if __name__ == '__main__':
     )
     logger = logging.getLogger("LND-7726")
     logger.info("Logging initialised.")
-
 
     def log_section(title: str) -> None:
         """Print a clearly visible section header to the notebook output."""

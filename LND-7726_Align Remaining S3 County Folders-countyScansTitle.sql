@@ -137,3 +137,19 @@ WHERE recordID = '0099832f-642e-4b21-9fb3-98179bf9ab6e'
 SELECT *
 FROM countyScansTitle.dbo.tbldataloaderspercounty
 ORDER BY LastProcessedDateLandLeaseProducer
+
+SELECT DATETIME('2026-03-26T13:19:38') - DATETIME('2026-03-26T13:28:16')
+
+SELECT TOP 1 CONCAT(storageFilePath, '\', originalFileName, fileType) as source_file_path, *
+FROM countyScansTitle.dbo.tblrecord
+WHERE recordid = '0009e17e-f7b5-4fa9-a6de-bea33e7665d3'
+
+
+SELECT tr.recordID, CONCAT(storageFilePath, '\', originalFileName, fileType) as source_file_path
+FROM countyScansTitle.dbo.tblrecord tr
+LEFT JOIN countyScansTitle.dbo.tblS3Image_LND7726 s3 ON s3.recordID = tr.recordID
+WHERE s3.Processed = -1
+
+UPDATE countyScansTitle.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = 's3://enverus-courthouse-prod-chd-plants/tx/reeves/0009/0009e17e-f7b5-4fa9-a6de-bea33e7665d3.pdf' WHERE recordID = '0009e17e-f7b5-4fa9-a6de-bea33e7665d3'
+
+UPDATE countyScansTitle.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = '0009e17e-f7b5-4fa9-a6de-bea33e7665d3'
