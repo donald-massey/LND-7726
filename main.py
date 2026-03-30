@@ -1,6 +1,7 @@
 from __future__ import annotations  # must be the FIRST import in the file
 
 import os
+import time
 import logging
 from pathlib import Path
 
@@ -64,33 +65,43 @@ def main():
     DATABASES = {"CST_DB": county_scans_title, "CSD_DB": cs_digital}
     logger.info("Database connections ready: %s", list(DATABASES.keys()))
 
-    cst_conn = DATABASES["CST_DB"]
-    cst_conn.connect()
-    cst_list = cst_conn.execute_query("""SELECT TOP 1 tr.recordID, CONCAT(storageFilePath, '\\', originalFileName, fileType) as source_file_path,
+    csd_conn = DATABASES["CSD_DB"]
+    csd_conn.connect()
+    csd_list = csd_conn.execute_query("""SELECT tr.recordID, CONCAT(storageFilePath, '\\', tr.recordID, '.pdf') as source_file_path,
                                              new_s3FilePath as new_s3filepath
-                                             FROM countyScansTitle.dbo.tblrecord tr
-                                             LEFT JOIN countyScansTitle.dbo.tblS3Image_LND7726 s3 ON s3.recordID = tr.recordID
-                                             WHERE s3.Processed = -1""", params=[])
-    cst_conn.close()
+                                             FROM CS_Digital.dbo.tblrecord tr
+                                             LEFT JOIN CS_Digital.dbo.tblS3Image_LND7726 s3 ON s3.recordID = tr.recordID
+                                             WHERE s3.Processed = -1 AND storageFilePath LIKE '%smb.dc2isilon.na.drillinginfo.com%'""", params=[])
+    csd_conn.close()
     s3_client = S3Client(bucket=os.environ.get("S3_BUCKET", None))
 
-    for _ in cst_list:
+    exist_counter = 0
+    not_exist_counter = 0
+    for _ in csd_list:
         record_id = _["recordID"]
         new_s3filepath = _["new_s3filepath"]
         source_file_path = _["source_file_path"]
         logger.info(f"record_id: {record_id}, new_s3filepath: {new_s3filepath}, source_file_path: {source_file_path}")
         if os.path.exists(source_file_path):
-            upload_result = s3_client.upload_file(source_file_path, new_s3filepath.replace(f"s3://{S3_BUCKET}/", "").lower())
-            logger.info(f"Successfully uploaded {source_file_path} to {new_s3filepath}")
+        #     upload_result = s3_client.upload_file(source_file_path, new_s3filepath.replace(f"s3://{S3_BUCKET}/", "").lower())
+        #     logger.info(f"Successfully uploaded {source_file_path} to {new_s3filepath}")
+        #
+        #     if upload_result:
+        #         csd_conn.connect()
+        #         csd_conn.execute_update(f"""UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK)
+        #                                     SET s3FilePath = '{new_s3filepath}' WHERE recordID = '{record_id}'""", params=[])
+        #         csd_conn.execute_update(f"""UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK)
+        #                                     SET Processed = 1 WHERE recordID = '{record_id}'""", params=[])
+        #         csd_conn.close()
+            exist_counter += 1
+        else:
+        #     logger.info(f"DOES NOT EXIST record_id: {record_id}, new_s3filepath: {new_s3filepath}, source_file_path: {source_file_path}")
+            not_exist_counter += 1
+        # time.sleep(5)
 
-            if upload_result:
-                cst_conn.connect()
-                cst_conn.execute_update(f"""UPDATE countyScansTitle.dbo.tblS3Image WITH (ROWLOCK) 
-                                            SET s3FilePath = '{new_s3filepath}' WHERE recordID = '{record_id}'""", params=[])
-                cst_conn.execute_update(f"""UPDATE countyScansTitle.dbo.tblS3Image_LND7726 WITH (ROWLOCK)
-                                                SET Processed = 1 WHERE recordID = '{record_id}'""", params=[])
-                cst_conn.close()
-
+    print(f"total record count: {len(csd_list)}; "
+          f"exist_counter = {exist_counter}; "
+          f"not_exist_counter = {not_exist_counter}")
 
 if __name__ == '__main__':
 

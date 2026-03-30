@@ -141,3 +141,11 @@ GROUP BY Processed
 SELECT TOP 10 *
 FROM CS_Digital.dbo.tblS3Image_LND7726
 WHERE Processed = -1
+
+SELECT TOP 1 *
+FROM CS_Digital.dbo.tblrecord
+
+SELECT tr.recordID, CONCAT(storageFilePath, '\\', tr.recordID, '.pdf') as source_file_path, new_s3FilePath as new_s3filepath
+                                             FROM CS_Digital.dbo.tblrecord tr
+                                             LEFT JOIN CS_Digital.dbo.tblS3Image_LND7726 s3 ON s3.recordID = tr.recordID
+                                             WHERE s3.Processed = -1
