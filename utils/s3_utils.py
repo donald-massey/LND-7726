@@ -105,7 +105,7 @@ def copy_and_verify(
         client.head_object(Bucket=client.bucket, Key=dst_key)
         result["status"] = "copied"
     except Exception as exc:
-        result["status"] = "error"
-        result["error"] = str(exc)
         logger.error("copy_and_verify failed: %s → %s: %s", src_key, dst_key, exc)
+        raise
+
     return result
