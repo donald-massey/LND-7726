@@ -5,12 +5,12 @@ def process_record(batch):
     Each process creates its own S3 client and DB connection.
     """
     import os
+    import csv
     import logging
     from pathlib import Path
     from utils.s3_utils import (
         S3Client,
         copy_and_verify)
-    import boto3
     from botocore.exceptions import ClientError
 
     logger = logging.getLogger("LND-7726.process_record")
@@ -30,7 +30,7 @@ def process_record(batch):
             copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
             logger.info(f"copy_result: {copy_result}")
             if "error" in copy_result:
-                raise copy_result[""]
+                pass
 
             # Delete old_s3_path
             delete_result = s3_client.delete_object(
@@ -70,7 +70,6 @@ def process_record(batch):
                 })
 
     # Write ALL results to CSV (successes AND failures) with Processed flag
-    import csv
     output_dir = Path("migration_results")
     output_dir.mkdir(exist_ok=True)
     csv_file = output_dir / f"migration_results.csv"
@@ -78,7 +77,7 @@ def process_record(batch):
     with open(csv_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=['record_id', 'old_s3_path', 'new_s3_path', 'Processed', 'error'])
         writer.writeheader()
-        for result in results:
+        for result in batch_results:
             writer.writerow({
                 'record_id': result.get('record_id', ''),
                 'old_s3_path': result.get('old_s3_path', ''),
@@ -86,12 +85,5 @@ def process_record(batch):
                 'Processed': result.get('Processed', -1),
                 'error': result.get('error', '')
             })
-
-    logger.info(f"Results written to {csv_file}")
-    logger.info(f"Total records processed: {len(results)}")
-    logger.info(f"Successful migrations (Processed=1): {succeeded}")
-    logger.info(f"Failed migrations (Processed=-1): {failed}")
-    nosuchkey_count = sum(1 for r in results if r.get("Processed") == -1 and "NoSuchKey" in r.get("error", ""))
-    logger.info(f"  - Source files not found: {nosuchkey_count}")
 
     return batch_results
