@@ -30,7 +30,7 @@ def process_record(batch):
             copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
             logger.info(f"copy_result: {copy_result}")
             if "error" in copy_result:
-                raise ClientError
+                raise copy_result[""]
 
             # Delete old_s3_path
             delete_result = s3_client.delete_object(
