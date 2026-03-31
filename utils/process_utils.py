@@ -74,7 +74,7 @@ def process_record(batch):
     output_dir.mkdir(exist_ok=True)
     csv_file = output_dir / f"migration_results.csv"
 
-    with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+    with open(csv_file, 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=['record_id', 'old_s3_path', 'new_s3_path', 'Processed', 'error'])
         writer.writeheader()
         for result in batch_results:
