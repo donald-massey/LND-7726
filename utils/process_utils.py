@@ -50,20 +50,22 @@ def process_record(batch):
             error_code = e.response['Error']['Code']
             if error_code == 'ExpiredToken':
                 print("Credentials have expired, need to refresh.")
+                break
             elif error_code == 'NoSuchKey':
                 logger.warning(f"Source file not found for {record_id}: {old_s3_path}")
                 batch_results.append({
                     "record_id": record_id,
                     "old_s3_path": old_s3_path,
                     "new_s3_path": new_s3_path,
-                    "Processed": -1  # Failed - source not found
+                    "Processed": -1,  # Failed - source not found
+                    "error": str(e)
                 })
             else:
                 batch_results.append({
                     "record_id": record_id,
                     "old_s3_path": old_s3_path,
                     "new_s3_path": new_s3_path,
-                    "Processed": -1,  # Failed - credentials expired
+                    "Processed": -1,  # Failed
                     "error": str(e)
                 })
 
