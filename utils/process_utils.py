@@ -1,18 +1,80 @@
+import os
+import csv
+import logging
+from pathlib import Path
+from utils.s3_utils import (
+    S3Client,
+    copy_and_verify)
+from botocore.exceptions import ClientError
+
+
+def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: int = 5) -> None:
+    """
+    Append batch results to a shared CSV file with retry + exponential backoff.
+
+    Mirrors the deadlock-retry pattern in DatabaseConnection.execute_update.
+    Handles file contention from multiple processes writing to the same file.
+    Uses fcntl file locking (Linux/Databricks) to prevent interleaved writes.
+    """
+    import csv
+    import time
+    import random
+    import fcntl
+    import logging
+
+    logger = logging.getLogger("LND-7726.process_record")
+    fieldnames = ['record_id', 'old_s3_path', 'new_s3_path', 'Processed', 'error']
+
+    for attempt in range(max_retries):
+        try:
+            with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+                # Acquire an exclusive lock — blocks until available
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    # Only write header if file is empty (first writer)
+                    f.seek(0, 2)  # seek to end
+                    if f.tell() == 0:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        writer.writeheader()
+                    else:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+
+                    for result in batch_results:
+                        writer.writerow({
+                            'record_id': result.get('record_id', ''),
+                            'old_s3_path': result.get('old_s3_path', ''),
+                            'new_s3_path': result.get('new_s3_path', ''),
+                            'Processed': result.get('Processed', -1),
+                            'error': result.get('error', '')
+                        })
+                finally:
+                    # Release the lock
+                    fcntl.flock(f, fcntl.LOCK_UN)
+
+            logger.info("Wrote %d results to %s", len(batch_results), csv_file)
+            return  # success — exit retry loop
+
+        except OSError as e:
+            if attempt < max_retries - 1:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "CSV write failed on attempt %d/%d, retrying in %.1fs: %s",
+                    attempt + 1, max_retries, wait, e,
+                )
+                time.sleep(wait)
+            else:
+                logger.error(
+                    "CSV write failed after %d attempt(s): %s",
+                    max_retries, e,
+                )
+                raise
+
 def process_record(batch):
     """
     Process a batch of records: copy, delete, and update DB.
     Must be a top-level function for pickling by multiprocessing.
     Each process creates its own S3 client and DB connection.
     """
-    import os
-    import csv
-    import logging
-    from pathlib import Path
-    from utils.s3_utils import (
-        S3Client,
-        copy_and_verify)
-    from botocore.exceptions import ClientError
-
     logger = logging.getLogger("LND-7726.process_record")
 
     s3_bucket = os.environ.get("S3_BUCKET")
@@ -74,16 +136,6 @@ def process_record(batch):
     output_dir.mkdir(exist_ok=True)
     csv_file = output_dir / f"migration_results.csv"
 
-    with open(csv_file, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['record_id', 'old_s3_path', 'new_s3_path', 'Processed', 'error'])
-        writer.writeheader()
-        for result in batch_results:
-            writer.writerow({
-                'record_id': result.get('record_id', ''),
-                'old_s3_path': result.get('old_s3_path', ''),
-                'new_s3_path': result.get('new_s3_path', ''),
-                'Processed': result.get('Processed', -1),
-                'error': result.get('error', '')
-            })
+    _write_batch_to_csv(batch_results, csv_file)
 
     return batch_results
