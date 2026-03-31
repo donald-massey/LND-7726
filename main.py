@@ -8,11 +8,11 @@ from pebble import ProcessPool
 from concurrent.futures import TimeoutError
 
 from utils.s3_utils import S3Client
+from utils.process_utils import process_record
+from utils.database_utils import DatabaseConnection
 
 
 def main():
-    from utils.process_utils import process_record
-    from utils.database_utils import DatabaseConnection
 
     logger = logging.getLogger("LND-7726.main")
     MAX_WORKERS = 8  # Adjust based on your system/resources
@@ -25,7 +25,6 @@ def main():
         _ = DATABASES  # noqa: F821
         _ = S3Client  # noqa: F821
     except NameError:
-        DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
         DB_NAME_1 = os.environ.get("DB_NAME_1", "database_name_1")
         DB_NAME_2 = os.environ.get("DB_NAME_2", "database_name_2")
         DB_SERVER = os.environ.get("DB_SERVER", "")
@@ -33,8 +32,8 @@ def main():
         DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
         S3_BUCKET = os.environ.get("S3_BUCKET", "enverus-courthouse-prod-chd-plants")
         DATABASES = {
-            DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
-            DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD, DRY_RUN),
+            DB_NAME_1: DatabaseConnection(DB_NAME_1, DB_SERVER, DB_USERNAME, DB_PASSWORD),
+            DB_NAME_2: DatabaseConnection(DB_NAME_2, DB_SERVER, DB_USERNAME, DB_PASSWORD),
         }
 
     def get_db_connection(*, db_name: str, server: str, username: str = "", password: str = "",
@@ -47,7 +46,6 @@ def main():
             server=server,
             username=username,
             password=password,
-            dry_run=dry_run,
         )
         conn.connect()
         return conn
@@ -59,14 +57,12 @@ def main():
         server=os.environ.get("CST_SERVER", None),
         username=os.environ.get("CST_USERNAME", None),
         password=os.environ.get("CST_PASSWORD", None),
-        dry_run=os.environ.get("DRY_RUN", True),
     )
     CS_Digital = get_db_connection(
         db_name=os.environ.get("CSD_DB", None),
         server=os.environ.get("CSD_SERVER", None),
         username=os.environ.get("CSD_USERNAME", None),
         password=os.environ.get("CSD_PASSWORD", None),
-        dry_run=os.environ.get("DRY_RUN", True),
     )
 
     DATABASES = {"CST_DB": countyScansTitle, "CSD_DB": CS_Digital}
@@ -104,10 +100,11 @@ def main():
                 logger.error(f"Batch failed: {e}")
                 results.append({"status": "error", "error": str(e)})
 
-    succeeded = sum(1 for r in results if r.get("status") == "success")
-    failed = len(results) - succeeded
+    succeeded = sum(1 for r in results if r.get("Processed") == 1)
+    failed = sum(1 for r in results if r.get("Processed") == -1)
     logger.info(f"Processing complete: {succeeded} succeeded, {failed} failed out of {len(csd_list)} total")
     logger.info(f"Elapsed Time: {datetime.now() - start_time}")
+
 
 if __name__ == '__main__':
 
@@ -133,13 +130,5 @@ if __name__ == '__main__':
     )
     logger = logging.getLogger("LND-7726")
     logger.info("Logging initialised.")
-
-
-    def log_section(title: str) -> None:
-        """Print a clearly visible section header to the notebook output."""
-        border = "=" * 70
-        print(f"\n{border}")
-        print(f"  {title}")
-        print(f"{border}\n")
 
     main()

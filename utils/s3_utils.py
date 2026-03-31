@@ -35,8 +35,6 @@ class S3Client:
     """
 
     def __init__(self, bucket: str, region: str = "us-east-1"):
-        import boto3  # noqa: PLC0415
-
         self.bucket = bucket
         self._client = boto3.client("s3", region_name=region)
         logger.info("S3Client initialised: bucket=%s region=%s", bucket, region)
@@ -89,9 +87,6 @@ def copy_and_verify(
 
     Returns a result dict:
     ``{"status": "copied"|"error", "src": ..., "dst": ..., "error": ...}``
-
-    Note: DRY_RUN logic is expected to be handled at the caller level —
-    do not call this function when dry-run mode is active.
     """
     result: dict[str, Any] = {"src": src_key, "dst": dst_key}
 

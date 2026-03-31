@@ -32,7 +32,6 @@ class DatabaseConnection:
     server   : SQL Server hostname or IP
     username : SQL Server login
     password : SQL Server password
-    dry_run  : when True, mutating statements are logged but not executed
     """
 
     def __init__(
@@ -40,19 +39,17 @@ class DatabaseConnection:
         db_name: str,
         server: str,
         username: str = "",
-        password: str = "",
-        dry_run: bool = True,
+        password: str = ""
     ):
         self.db_name = db_name
         self.server = server
         self.username = username
         self.password = password
-        self.dry_run = dry_run
         self._conn = None
         self._in_transaction = False
         logger.info(
-            "DatabaseConnection initialised: server=%s db=%s dry_run=%s",
-            server, db_name, dry_run,
+            "DatabaseConnection initialised: server=%s db=%s",
+            server, db_name
         )
 
     # ------------------------------------------------------------------
@@ -134,8 +131,7 @@ class DatabaseConnection:
         """
         Execute an INSERT / UPDATE / DELETE statement.
 
-        In DRY_RUN mode the statement is logged but not applied and 0 is returned.
-        Otherwise returns the number of rows affected (``cursor.rowcount``).
+        Returns the number of rows affected (``cursor.rowcount``).
 
         Automatically retries on deadlock errors with exponential backoff + jitter.
 
@@ -146,12 +142,9 @@ class DatabaseConnection:
         max_retries : number of attempts before raising (default 3)
         """
         logger.info(
-            "[%s] UPDATE (dry_run=%s): %s | params=%s",
-            self.db_name, self.dry_run, sql.strip(), params,
+            "[%s] UPDATE : %s | params=%s",
+            self.db_name, sql.strip(), params,
         )
-        if ast.literal_eval(self.dry_run) == True:
-            logger.info("[%s] DRY RUN — no changes written.", self.db_name)
-            return 0
         if self._conn is None:
             raise RuntimeError(
                 f"[{self.db_name}] Not connected. Call connect() first."
