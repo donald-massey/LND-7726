@@ -70,10 +70,10 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 80 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
-    def chunk_list(items, batch_size=100):
+    def chunk_list(items, batch_size=10):
         """Split items into batches of batch_size."""
         return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 

@@ -8,7 +8,7 @@ from utils.s3_utils import (
 from botocore.exceptions import ClientError
 
 
-def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: int = 5) -> None:
+def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: int = 8) -> None:
     """
     Append batch results to a shared CSV file with retry + exponential backoff.
 
@@ -19,7 +19,7 @@ def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: 
     import csv
     import time
     import random
-    import fcntl
+    import winfcntl
     import logging
 
     logger = logging.getLogger("LND-7726.process_record")
@@ -29,7 +29,7 @@ def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: 
         try:
             with open(csv_file, 'a', newline='', encoding='utf-8') as f:
                 # Acquire an exclusive lock — blocks until available
-                fcntl.flock(f, fcntl.LOCK_EX)
+                winfcntl.flock(f, winfcntl.LOCK_EX)
                 try:
                     # Only write header if file is empty (first writer)
                     f.seek(0, 2)  # seek to end
@@ -49,7 +49,7 @@ def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: 
                         })
                 finally:
                     # Release the lock
-                    fcntl.flock(f, fcntl.LOCK_UN)
+                    winfcntl.flock(f, winfcntl.LOCK_UN)
 
             logger.info("Wrote %d results to %s", len(batch_results), csv_file)
             return  # success — exit retry loop
@@ -88,15 +88,15 @@ def process_record(batch):
         new_s3_path = row_dict["new_s3FilePath"]
 
         try:
-            # Copy old_s3_path to new_s3_path
-            copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
-            logger.info(f"copy_result: {copy_result}")
-
-            # Delete old_s3_path
-            delete_result = s3_client.delete_object(
-                Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
-            )
-            logger.info(f"delete_result: {delete_result}")
+            # # Copy old_s3_path to new_s3_path
+            # copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
+            # logger.info(f"copy_result: {copy_result}")
+            #
+            # # Delete old_s3_path
+            # delete_result = s3_client.delete_object(
+            #     Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
+            # )
+            # logger.info(f"delete_result: {delete_result}")
 
             logger.info(f"record_id: {record_id} status: success")
             batch_results.append({
@@ -106,7 +106,6 @@ def process_record(batch):
                 "Processed": 1,  # Success
                 "error": ""
             })
-
         except ClientError as e:
             # Check if this is a NoSuchKey error (missing source file in S3)
             error_code = e.response['Error']['Code']
