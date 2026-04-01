@@ -74,8 +74,12 @@ def main():
     csd_conn.close()
 
     def chunk_list(items, batch_size=10):
-        """Split items into batches of batch_size."""
-        return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+        """Split items into batches of batch_size, stamping each with a batch number."""
+        batches = []
+        for i in range(0, len(items), batch_size):
+            batch_number = (i // batch_size) + 1
+            batches.append((batch_number, items[i:i + batch_size]))
+        return batches
 
     batched_list = chunk_list(csd_list)
     logger.info(f"Split {len(csd_list)} records into {len(batched_list)} batches")

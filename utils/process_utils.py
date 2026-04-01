@@ -8,74 +8,43 @@ from utils.s3_utils import (
 from botocore.exceptions import ClientError
 
 
-def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: int = 8) -> None:
+def _write_batch_to_csv(batch_results: list[dict], csv_file: Path) -> None:
     """
-    Append batch results to a shared CSV file with retry + exponential backoff.
-
-    Mirrors the deadlock-retry pattern in DatabaseConnection.execute_update.
-    Handles file contention from multiple processes writing to the same file.
-    Uses fcntl file locking (Linux/Databricks) to prevent interleaved writes.
+    Write batch results to a dedicated CSV file (one file per batch).
+    No locking needed since each batch writes to its own file.
     """
-    import csv
-    import time
-    import random
-    import winfcntl
-    import logging
-
     logger = logging.getLogger("LND-7726.process_record")
     fieldnames = ['record_id', 'old_s3_path', 'new_s3_path', 'Processed', 'error']
 
-    for attempt in range(max_retries):
-        try:
-            with open(csv_file, 'a', newline='', encoding='utf-8') as f:
-                # Acquire an exclusive lock — blocks until available
-                winfcntl.flock(f.fileno(), winfcntl.LOCK_EX)
-                try:
-                    # Only write header if file is empty (first writer)
-                    f.seek(0, 2)  # seek to end
-                    if f.tell() == 0:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        writer.writeheader()
-                    else:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for result in batch_results:
+            writer.writerow({
+                'record_id': result.get('record_id', ''),
+                'old_s3_path': result.get('old_s3_path', ''),
+                'new_s3_path': result.get('new_s3_path', ''),
+                'Processed': result.get('Processed', -1),
+                'error': result.get('error', '')
+            })
 
-                    for result in batch_results:
-                        writer.writerow({
-                            'record_id': result.get('record_id', ''),
-                            'old_s3_path': result.get('old_s3_path', ''),
-                            'new_s3_path': result.get('new_s3_path', ''),
-                            'Processed': result.get('Processed', -1),
-                            'error': result.get('error', '')
-                        })
-                finally:
-                    # Release the lock
-                    winfcntl.flock(f.fileno(), winfcntl.LOCK_UN)
+    logger.info("Wrote %d results to %s", len(batch_results), csv_file)
 
-            logger.info("Wrote %d results to %s", len(batch_results), csv_file)
-            return  # success — exit retry loop
 
-        except OSError as e:
-            if attempt < max_retries - 1:
-                wait = (2 ** attempt) + random.uniform(0, 2 ** attempt)
-                logger.warning(
-                    "CSV write failed on attempt %d/%d, retrying in %.1fs: %s",
-                    attempt + 1, max_retries, wait, e,
-                )
-                time.sleep(wait)
-            else:
-                logger.error(
-                    "CSV write failed after %d attempt(s): %s",
-                    max_retries, e,
-                )
-                raise
-
-def process_record(batch):
+def process_record(batch_tuple):
     """
     Process a batch of records: copy, delete, and update DB.
     Must be a top-level function for pickling by multiprocessing.
     Each process creates its own S3 client and DB connection.
+
+    Parameters
+    ----------
+    batch_tuple : (batch_number, list[dict]) — batch number and the row dicts
     """
+    batch_number, batch = batch_tuple
+
     logger = logging.getLogger("LND-7726.process_record")
+    logger.info("Starting batch %d with %d records", batch_number, len(batch))
 
     s3_bucket = os.environ.get("S3_BUCKET")
     s3_client = S3Client(bucket=s3_bucket)
@@ -130,10 +99,10 @@ def process_record(batch):
                     "error": str(e)
                 })
 
-    # Write ALL results to CSV (successes AND failures) with Processed flag
+    # Write results to a batch-specific CSV file
     output_dir = Path("migration_results")
     output_dir.mkdir(exist_ok=True)
-    csv_file = output_dir / f"migration_results.csv"
+    csv_file = output_dir / f"migration_results_batch_{batch_number}.csv"
 
     _write_batch_to_csv(batch_results, csv_file)
 

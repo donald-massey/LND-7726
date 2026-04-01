@@ -106,12 +106,20 @@ if __name__ == '__main__':
     )
 
     if len(sys.argv) < 2:
-        print("Usage: python update_database_from_csv.py <csv_file_path>")
+        print("Usage: python update_database_from_csv.py <csv_dir_or_file>")
         sys.exit(1)
 
-    csv_file = sys.argv[1]
-    if not Path(csv_file).exists():
-        print(f"File not found: {csv_file}")
+    target = Path(sys.argv[1])
+    if target.is_dir():
+        csv_files = sorted(target.glob("migration_results_batch_*.csv"))
+        if not csv_files:
+            print(f"No batch CSV files found in {target}")
+            sys.exit(1)
+        for csv_file in csv_files:
+            print(f"Processing {csv_file.name}...")
+            update_database_from_csv(str(csv_file))
+    elif target.is_file():
+        update_database_from_csv(str(target))
+    else:
+        print(f"Path not found: {target}")
         sys.exit(1)
-
-    update_database_from_csv(csv_file)
