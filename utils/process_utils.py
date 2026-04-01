@@ -29,7 +29,7 @@ def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: 
         try:
             with open(csv_file, 'a', newline='', encoding='utf-8') as f:
                 # Acquire an exclusive lock — blocks until available
-                winfcntl.flock(f, winfcntl.LOCK_EX)
+                winfcntl.flock(f.fileno(), winfcntl.LOCK_EX)
                 try:
                     # Only write header if file is empty (first writer)
                     f.seek(0, 2)  # seek to end
@@ -49,14 +49,14 @@ def _write_batch_to_csv(batch_results: list[dict], csv_file: Path, max_retries: 
                         })
                 finally:
                     # Release the lock
-                    winfcntl.flock(f, winfcntl.LOCK_UN)
+                    winfcntl.flock(f.fileno(), winfcntl.LOCK_UN)
 
             logger.info("Wrote %d results to %s", len(batch_results), csv_file)
             return  # success — exit retry loop
 
         except OSError as e:
             if attempt < max_retries - 1:
-                wait = (2 ** attempt) + random.uniform(0, 1)
+                wait = (2 ** attempt) + random.uniform(0, 2 ** attempt)
                 logger.warning(
                     "CSV write failed on attempt %d/%d, retrying in %.1fs: %s",
                     attempt + 1, max_retries, wait, e,
