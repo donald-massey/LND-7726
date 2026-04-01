@@ -2,6 +2,7 @@ import os
 import csv
 import logging
 from pathlib import Path
+from datetime import datetime
 from utils.s3_utils import (
     S3Client,
     copy_and_verify)
@@ -57,15 +58,15 @@ def process_record(batch_tuple):
         new_s3_path = row_dict["new_s3FilePath"]
 
         try:
-            # # Copy old_s3_path to new_s3_path
-            # copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
-            # logger.info(f"copy_result: {copy_result}")
-            #
-            # # Delete old_s3_path
-            # delete_result = s3_client.delete_object(
-            #     Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
-            # )
-            # logger.info(f"delete_result: {delete_result}")
+            # Copy old_s3_path to new_s3_path
+            copy_result = copy_and_verify(client=s3_client, src_key=old_s3_path, dst_key=new_s3_path)
+            logger.info(f"copy_result: {copy_result}")
+
+            # Delete old_s3_path
+            delete_result = s3_client.delete_object(
+                Bucket=s3_bucket, Key=old_s3_path.replace(f"s3://{s3_bucket}/", "")
+            )
+            logger.info(f"delete_result: {delete_result}")
 
             logger.info(f"record_id: {record_id} status: success")
             batch_results.append({
@@ -95,14 +96,14 @@ def process_record(batch_tuple):
                     "record_id": record_id,
                     "old_s3_path": old_s3_path,
                     "new_s3_path": new_s3_path,
-                    "Processed": -1,  # Failed
+                    "Processed": -2,  # Failed
                     "error": str(e)
                 })
 
     # Write results to a batch-specific CSV file
     output_dir = Path("migration_results")
     output_dir.mkdir(exist_ok=True)
-    csv_file = output_dir / f"migration_results_batch_{batch_number}.csv"
+    csv_file = output_dir / f"migration_results_batch_{batch_number}_{datetime.now().strftime('%Y-%m-%d')}.csv"
 
     _write_batch_to_csv(batch_results, csv_file)
 
