@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import csv
+import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -10,6 +11,8 @@ from utils.database_utils import DatabaseConnection
 def update_database_from_csv(csv_file_path: str):
     """
     Read migration results from CSV and update database accordingly.
+    After processing, the CSV is copied to a processed_archive subdirectory
+    alongside the source file, with a UTC timestamp appended to the filename.
 
     Parameters
     ----------
@@ -76,6 +79,33 @@ def update_database_from_csv(csv_file_path: str):
     logger.info(f"  Successful: {successful_updates}")
     logger.info(f"  Failed: {failed_updates}")
     logger.info(f"  Skipped: {skipped}")
+
+    # Archive the processed CSV
+    _archive_csv(csv_file_path, logger)
+
+
+def _archive_csv(csv_file_path: str, logger: logging.Logger) -> None:
+    """
+    Copy a processed CSV into a processed_archive directory that lives
+    alongside the source file.  The archived copy has a UTC timestamp
+    appended to its stem so repeated runs never overwrite each other.
+
+    Parameters
+    ----------
+    csv_file_path : original path of the CSV that was just processed
+    logger        : caller's logger instance
+    """
+    source = Path(csv_file_path)
+    archive_dir = source.parent / "processed_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    archived_name = f"{source.stem}_{timestamp}{source.suffix}"
+    destination = archive_dir / archived_name
+
+    shutil.copy2(source, destination)
+    logger.info(f"Archived processed CSV to: {destination}")
+
 
 if __name__ == '__main__':
 
