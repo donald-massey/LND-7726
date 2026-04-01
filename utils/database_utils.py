@@ -157,7 +157,8 @@ class DatabaseConnection:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                cursor.commit()
+                if not self._in_transaction:
+                    cursor.commit()
                 rows_affected = cursor.rowcount
                 logger.info("[%s] %d row(s) affected.", self.db_name, rows_affected)
                 return rows_affected

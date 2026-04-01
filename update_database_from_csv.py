@@ -42,17 +42,24 @@ def update_database_from_csv(csv_file_path: str):
 
             try:
                 if processed == 1:
-                    # Successful migration: update s3FilePath and mark Processed = 1
-                    rows_affected = csd_conn.execute_update(
-                        f"UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = ? WHERE recordID = ?",
-                        params=[new_s3_path, record_id]
-                    )
-                    csd_conn.execute_update(
-                        f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = ?",
-                        params=[record_id]
-                    )
-                    successful_updates += 1
-                    logger.info(f"Updated {record_id}: {rows_affected} rows affected")
+                    # Successful migration: update s3FilePath and mark Processed = 1 atomically
+                    csd_conn.begin_transaction()
+                    try:
+                        rows_affected = csd_conn.execute_update(
+                            "UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = ? WHERE recordID = ?",
+                            params=[new_s3_path, record_id]
+                        )
+                        csd_conn.execute_update(
+                            "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = ?",
+                            params=[record_id]
+                        )
+                        csd_conn.commit()
+                        successful_updates += 1
+                        logger.info(f"Updated {record_id}: {rows_affected} rows affected")
+                    except Exception as e:
+                        csd_conn.rollback()
+                        failed_updates += 1
+                        logger.error(f"Failed to update {record_id}, transaction rolled back: {e}")
 
                 elif processed == -1:
                     # Failed migration: mark Processed = -1 in tracking table only
