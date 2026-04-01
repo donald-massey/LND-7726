@@ -10,7 +10,7 @@ from utils.database_utils import DatabaseConnection
 def update_database_from_csv(csv_file_path: str):
     """
     Read migration results from CSV and update database accordingly.
-    After processing, the CSV is copied to a processed_archive subdirectory
+    After processing, the CSV is moved to a processed_archive subdirectory
     alongside the source file, with a UTC timestamp appended to the filename.
 
     Parameters
@@ -85,8 +85,8 @@ def update_database_from_csv(csv_file_path: str):
 
 def _archive_csv(csv_file_path: str, logger: logging.Logger) -> None:
     """
-    Copy a processed CSV into a processed_archive directory that lives
-    alongside the source file.  The archived copy has a UTC timestamp
+    Move a processed CSV into a processed_archive directory that lives
+    alongside the source file.  The archived file has a UTC timestamp
     appended to its stem so repeated runs never overwrite each other.
 
     Parameters
@@ -98,8 +98,12 @@ def _archive_csv(csv_file_path: str, logger: logging.Logger) -> None:
     archive_dir = source.parent / "processed_archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(source, archive_dir)
-    logger.info(f"Archived processed CSV to: {archive_dir}")
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    archived_name = f"{source.stem}_{timestamp}{source.suffix}"
+    destination = archive_dir / archived_name
+
+    shutil.move(str(source), destination)
+    logger.info(f"Moved processed CSV to: {destination}")
 
 
 if __name__ == '__main__':
@@ -108,7 +112,7 @@ if __name__ == '__main__':
     try:
         from dotenv import load_dotenv
 
-        _env_file = Path(r'C:\Users\donald.massey\PycharmProjects\LND-7726\.env')
+        _env_file = Path(r'C:/Users/donald.massey/PycharmProjects/LND-7726/.env')
         if _env_file.exists():
             load_dotenv(_env_file)
             print(f"Loaded environment variables from {_env_file}")
