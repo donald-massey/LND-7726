@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import csv
+import itertools
 import shutil
 import logging
 from pathlib import Path
@@ -10,6 +11,8 @@ from utils.database_utils import DatabaseConnection
 def update_database_from_csv(csv_file_path: str):
     """
     Read migration results from CSV and update database accordingly.
+    Rows are processed in batches of BATCH_SIZE (read from the environment,
+    defaulting to 100) to reduce per-row transaction overhead.
     After processing, the CSV is moved to a processed_archive subdirectory
     alongside the source file, with a UTC timestamp appended to the filename.
 
@@ -18,6 +21,8 @@ def update_database_from_csv(csv_file_path: str):
     csv_file_path : path to the CSV file with migration results
     """
     logger = logging.getLogger("LND-7726.db_update")
+
+    batch_size = int(os.environ.get("BATCH_SIZE", 100))
 
     # Connect to database
     csd_conn = DatabaseConnection(
@@ -34,50 +39,81 @@ def update_database_from_csv(csv_file_path: str):
 
     with open(csv_file_path, 'r') as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            record_id = row['record_id']
-            new_s3_path = row['new_s3_path']
-            processed = int(row['Processed'])
-            error = row.get('error', '')
+        batch_num = 0
+        while True:
+            batch = list(itertools.islice(reader, batch_size))
+            if not batch:
+                break
+            batch_num += 1
 
-            try:
+            success_rows = []
+            failure_rows = []
+            batch_skipped = 0
+
+            for row in batch:
+                processed = int(row['Processed'])
                 if processed == 1:
-                    # Successful migration: update s3FilePath and mark Processed = 1 atomically
-                    csd_conn.begin_transaction()
-                    try:
-                        rows_affected = csd_conn.execute_update(
-                            "UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) SET s3FilePath = ? WHERE recordID = ?",
-                            params=[new_s3_path, record_id]
-                        )
-                        csd_conn.execute_update(
-                            "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = 1 WHERE recordID = ?",
-                            params=[record_id]
-                        )
-                        csd_conn.commit()
-                        successful_updates += 1
-                        logger.info(f"Updated {record_id}: {rows_affected} rows affected")
-                    except Exception as e:
-                        csd_conn.rollback()
-                        failed_updates += 1
-                        logger.error(f"Failed to update {record_id}, transaction rolled back: {e}")
-
+                    success_rows.append(row)
                 elif processed == -1:
-                    # Failed migration: mark Processed = -1 in tracking table only
-                    csd_conn.execute_update(
-                        f"UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) SET Processed = -1 WHERE recordID = ?",
-                        params=[record_id]
-                    )
-                    failed_updates += 1
-                    logger.info(f"Marked {record_id} as failed (Processed=-1): {error}")
-
+                    failure_rows.append(row)
                 else:
-                    # Unknown Processed value
-                    logger.warning(f"Unknown Processed value {processed} for {record_id}")
+                    logger.warning(
+                        f"Unknown Processed value {processed} for {row['record_id']}"
+                    )
                     skipped += 1
+                    batch_skipped += 1
 
-            except Exception as e:
-                failed_updates += 1
-                logger.error(f"Failed to update {record_id}: {e}")
+            # --- Success bucket: one transaction, two executemany calls ---
+            batch_successful = 0
+            batch_failed = 0
+
+            if success_rows:
+                s3_params = [
+                    (row['new_s3_path'], row['record_id']) for row in success_rows
+                ]
+                processed_params = [(row['record_id'],) for row in success_rows]
+                try:
+                    csd_conn.begin_transaction()
+                    csd_conn.execute_many(
+                        "UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) "
+                        "SET s3FilePath = ? WHERE recordID = ?",
+                        s3_params,
+                    )
+                    csd_conn.execute_many(
+                        "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) "
+                        "SET Processed = 1 WHERE recordID = ?",
+                        processed_params,
+                    )
+                    csd_conn.commit()
+                    batch_successful += len(success_rows)
+                    successful_updates += len(success_rows)
+                except Exception as e:
+                    csd_conn.rollback()
+                    batch_failed += len(success_rows)
+                    failed_updates += len(success_rows)
+                    record_ids = [row['record_id'] for row in success_rows]
+                    logger.error(
+                        f"Batch {batch_num}: transaction rolled back for "
+                        f"{len(success_rows)} record(s) {record_ids}: {e}"
+                    )
+
+            # --- Failure bucket: one executemany, no transaction ---
+            if failure_rows:
+                failure_params = [(row['record_id'],) for row in failure_rows]
+                csd_conn.execute_many(
+                    "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) "
+                    "SET Processed = -1 WHERE recordID = ?",
+                    failure_params,
+                )
+                batch_failed += len(failure_rows)
+                failed_updates += len(failure_rows)
+
+            logger.info(
+                f"Batch {batch_num}: size={len(batch)}, "
+                f"successful={batch_successful}, "
+                f"failed={batch_failed}, "
+                f"skipped={batch_skipped}"
+            )
 
     csd_conn.close()
 
