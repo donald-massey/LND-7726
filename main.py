@@ -1,5 +1,6 @@
 from __future__ import annotations  # must be the FIRST import in the file
 
+import csv
 import os
 import logging
 from pathlib import Path
@@ -11,6 +12,41 @@ from utils.s3_utils import S3Client
 from utils.process_utils import process_record
 from utils.database_utils import DatabaseConnection
 
+def _load_already_processed_ids() -> set[str]:
+    """Return the set of record_ids that already appear in any migration-results CSV.
+
+    Scans two locations relative to this file:
+      - migration_results/migration_results_batch_*.csv          (in-flight / unprocessed)
+      - migration_results/processed_archive/migration_results_batch_*.csv  (already archived)
+
+    Any row whose ``record_id`` column is non-empty is included so that re-runs
+    never re-queue work that has already been attempted.
+    """
+    logger = logging.getLogger("LND-7726.main")
+    base = Path(__file__).parent / "migration_results"
+
+    search_dirs = [
+        base,
+        base / "processed_archive",
+    ]
+
+    seen_ids: set[str] = set()
+    for directory in search_dirs:
+        if not directory.is_dir():
+            continue
+        for csv_path in sorted(directory.glob("migration_results_batch_*.csv")):
+            try:
+                with csv_path.open(newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    for row in reader:
+                        rid = row.get("record_id", "").strip()
+                        if rid:
+                            seen_ids.add(rid)
+            except Exception as exc:
+                logger.warning("Could not read %s — skipping: %s", csv_path, exc)
+
+    logger.info("Found %d already-processed record IDs in migration_results CSVs", len(seen_ids))
+    return seen_ids
 
 def main():
 
@@ -50,7 +86,6 @@ def main():
         conn.connect()
         return conn
 
-
     # Instantiate connections to both databases.
     countyScansTitle = get_db_connection(
         db_name=os.environ.get("CST_DB", None),
@@ -70,8 +105,24 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT TOP 80 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 80 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])  
     csd_conn.close()
+
+    # ------------------------------------------------------------------
+    # Filter out records that already appear in migration-results CSVs
+    # (both in-flight and archived) so that re-runs never re-queue work
+    # that has already been attempted in a previous run.
+    # ------------------------------------------------------------------
+    already_processed = _load_already_processed_ids()
+    if already_processed:
+        before = len(csd_list)
+        csd_list = [r for r in csd_list if str(r.get("recordID", "").strip() not in already_processed)]
+        skipped = before - len(csd_list)
+        logger.info(
+            "Filtered csd_list: %d record(s) skipped (already in migration CSVs), %d remaining",
+            skipped,
+            len(csd_list),
+        )
 
     def chunk_list(items, num_chunks):
         """Split items into exactly num_chunks batches, stamping each with a batch number.
