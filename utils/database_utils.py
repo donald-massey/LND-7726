@@ -127,6 +127,64 @@ class DatabaseConnection:
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+    def execute_many(self, sql: str, params_seq: list[tuple], max_retries: int = 5) -> int:
+        """
+        Execute a DML statement for each tuple in *params_seq* using
+        ``cursor.executemany``, which sends all rows in a single batch.
+
+        Returns the total number of rows affected (``cursor.rowcount``).
+
+        Automatically retries on deadlock errors with exponential backoff + jitter.
+
+        Parameters
+        ----------
+        sql         : SQL DML statement with ``?`` placeholders
+        params_seq  : sequence of parameter tuples, one per row
+        max_retries : number of attempts before raising (default 5)
+        """
+        logger.info(
+            "[%s] EXECUTEMANY : %s | %d row(s)",
+            self.db_name, sql.strip(), len(params_seq),
+        )
+        if self._conn is None:
+            raise RuntimeError(
+                f"[{self.db_name}] Not connected. Call connect() first."
+            )
+
+        for attempt in range(max_retries):
+            try:
+                cursor = self._conn.cursor()
+                cursor.executemany(sql, params_seq)
+                if not self._in_transaction:
+                    self._conn.commit()
+                rows_affected = cursor.rowcount
+                logger.info("[%s] %d row(s) affected.", self.db_name, rows_affected)
+                return rows_affected
+
+            except Exception as e:
+                if "deadlock" in str(e).lower() and attempt < max_retries - 1:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "[%s] Deadlock detected on attempt %d/%d, retrying in %.1fs: %s",
+                        self.db_name, attempt + 1, max_retries, wait, sql.strip(),
+                    )
+                    time.sleep(wait)
+                    try:
+                        self.close()
+                        self.connect()
+                    except Exception as reconnect_err:
+                        logger.error(
+                            "[%s] Failed to reconnect after deadlock: %s",
+                            self.db_name, reconnect_err,
+                        )
+                        raise e from reconnect_err
+                else:
+                    logger.error(
+                        "[%s] execute_many failed after %d attempt(s): %s",
+                        self.db_name, attempt + 1, e,
+                    )
+                    raise
+
     def execute_update(self, sql: str, params: list, max_retries: int = 5) -> int:
         """
         Execute an INSERT / UPDATE / DELETE statement.
