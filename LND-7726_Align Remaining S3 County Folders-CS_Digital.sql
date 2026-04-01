@@ -120,26 +120,17 @@ WHERE Processed != 0
 
 SELECT *
 FROM CS_Digital.dbo.tblS3Image_LND7726
-WHERE recordID = 'a32f23d9-ccad-4907-b7fd-4c0215d17051'
-
-SELECT *
-FROM CS_Digital.dbo.tblS3Image_LND7726
-WHERE recordID = 'a2f0c06f-d14f-4075-a815-8d89a4c086e8'
+WHERE recordID = '07bab118-687e-4827-847a-5838ce75161a'
 
 SELECT *
 FROM CS_Digital.dbo.tblS3Image
-WHERE recordID = 'a2f0c06f-d14f-4075-a815-8d89a4c086e8'
-
-SELECT *
-FROM CS_Digital.dbo.tblS3Image
-WHERE recordID IN (SELECT recordID FROM CS_Digital.dbo.tblS3Image_LND7726 WHERE Processed =1)
+WHERE recordID = '07bab118-687e-4827-847a-5838ce75161a'
 
 SELECT COUNT(*), Processed
 FROM CS_Digital.dbo.tblS3Image_LND7726
 GROUP BY Processed
 
-SELECT TOP 10 *
-FROM CS_Digital.dbo.tblS3Image_LND7726
-WHERE Processed = -1
 
-
+UPDATE CS_Digital.dbo.tblS3Image_LND7726
+SET Processed = 1
+WHERE recordID = '07bab118-687e-4827-847a-5838ce75161a'

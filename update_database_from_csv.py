@@ -5,7 +5,6 @@ import csv
 import shutil
 import logging
 from pathlib import Path
-from datetime import datetime
 from utils.database_utils import DatabaseConnection
 
 def update_database_from_csv(csv_file_path: str):
@@ -105,17 +104,32 @@ def _archive_csv(csv_file_path: str, logger: logging.Logger) -> None:
 
 if __name__ == '__main__':
 
+    # Load .env file if python-dotenv is available (local / non-Databricks runs).
+    try:
+        from dotenv import load_dotenv
+
+        _env_file = Path(r'C:\Users\donald.massey\PycharmProjects\LND-7726\.env')
+        if _env_file.exists():
+            load_dotenv(_env_file)
+            print(f"Loaded environment variables from {_env_file}")
+            for key, value in os.environ.items():
+                print(f'key: {key}; value: {value}')
+        else:
+            print(f"No .env file found at {_env_file} — using environment / Databricks secrets.")
+    except ImportError:
+        print("python-dotenv not installed; skipping .env load.")
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    target = Path(__file__, 'migration_results')
+    target = Path(__file__).parent / "migration_results"
     if target.is_dir():
         csv_files = sorted(target.glob("migration_results_batch_*.csv"))
         if not csv_files:
             print(f"No batch CSV files found in {target}")
         for csv_file in csv_files:
-            print(f"Processing {csv_file.name}...")
+            print(f"Processing: {csv_file.name}")
             update_database_from_csv(str(csv_file))
