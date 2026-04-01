@@ -73,15 +73,26 @@ def main():
     csd_list = csd_conn.execute_query("SELECT TOP 80 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
-    def chunk_list(items, batch_size=10):
-        """Split items into batches of batch_size, stamping each with a batch number."""
+    def chunk_list(items, num_chunks):
+        """Split items into exactly num_chunks batches, stamping each with a batch number.
+
+        Items are distributed as evenly as possible across batches using divmod, so the
+        number of output batches always equals min(num_chunks, len(items)) — guaranteeing
+        at most num_chunks CSV files regardless of how many records are returned.
+        """
+        if not items:
+            return []
+        actual_chunks = min(num_chunks, len(items))
+        base_size, remainder = divmod(len(items), actual_chunks)
         batches = []
-        for i in range(0, len(items), batch_size):
-            batch_number = (i // batch_size) + 1
-            batches.append((batch_number, items[i:i + batch_size]))
+        start = 0
+        for chunk_idx in range(actual_chunks):
+            size = base_size + (1 if chunk_idx < remainder else 0)
+            batches.append((chunk_idx + 1, items[start:start + size]))
+            start += size
         return batches
 
-    batched_list = chunk_list(csd_list)
+    batched_list = chunk_list(csd_list, num_chunks=MAX_WORKERS)
     logger.info(f"Split {len(csd_list)} records into {len(batched_list)} batches")
 
     results = []
