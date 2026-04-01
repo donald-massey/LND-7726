@@ -99,12 +99,8 @@ def _archive_csv(csv_file_path: str, logger: logging.Logger) -> None:
     archive_dir = source.parent / "processed_archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    archived_name = f"{source.stem}_{timestamp}{source.suffix}"
-    destination = archive_dir / archived_name
-
-    shutil.copy2(source, destination)
-    logger.info(f"Archived processed CSV to: {destination}")
+    shutil.copy2(source, archive_dir)
+    logger.info(f"Archived processed CSV to: {archive_dir}")
 
 
 if __name__ == '__main__':
