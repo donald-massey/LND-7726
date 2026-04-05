@@ -52,7 +52,6 @@ def main():
 
     logger = logging.getLogger("LND-7726.main")
     MAX_WORKERS = 8  # Adjust based on your system/resources
-    TASK_TIMEOUT = 900  # seconds per task
 
     # ---------------------------------------------------------------------------
     # Config defaults
@@ -105,7 +104,7 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT TOP 80000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 240000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
     # ------------------------------------------------------------------
@@ -149,7 +148,7 @@ def main():
     results = []
     start_time = datetime.now()
     with ProcessPool(max_workers=MAX_WORKERS) as pool:
-        future = pool.map(process_record, batched_list, timeout=TASK_TIMEOUT)
+        future = pool.map(process_record, batched_list)
         iterator = future.result()
 
         while True:

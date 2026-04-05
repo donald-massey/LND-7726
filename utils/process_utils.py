@@ -1,3 +1,5 @@
+from __future__ import annotations  # must be the FIRST import in the file
+
 import os
 import csv
 import logging
