@@ -104,7 +104,7 @@ def main():
 
     csd_conn = DATABASES["CSD_DB"]
     csd_conn.connect()
-    csd_list = csd_conn.execute_query("SELECT TOP 240000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
+    csd_list = csd_conn.execute_query("SELECT TOP 480000 * FROM tblS3Image_LND7726 WHERE Processed = 0", params=[])
     csd_conn.close()
 
     # ------------------------------------------------------------------
@@ -115,7 +115,7 @@ def main():
     already_processed = _load_already_processed_ids()
     if already_processed:
         before = len(csd_list)
-        csd_list = [r for r in csd_list if str(r.get("recordID", "").strip() not in already_processed)]
+        csd_list = [r for r in csd_list if str(r.get("recordID", "")).strip() not in already_processed]
         skipped = before - len(csd_list)
         logger.info(
             "Filtered csd_list: %d record(s) skipped (already in migration CSVs), %d remaining",

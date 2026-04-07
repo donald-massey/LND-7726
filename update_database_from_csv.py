@@ -22,7 +22,7 @@ def update_database_from_csv(csv_file_path: str):
     """
     logger = logging.getLogger("LND-7726.db_update")
 
-    batch_size = int(os.environ.get("BATCH_SIZE", 100))
+    batch_size = int(os.environ.get("BATCH_SIZE", 1000))
 
     # Connect to database
     csd_conn = DatabaseConnection(
@@ -75,12 +75,12 @@ def update_database_from_csv(csv_file_path: str):
                 try:
                     csd_conn.begin_transaction()
                     csd_conn.execute_many(
-                        "UPDATE CS_Digital.dbo.tblS3Image WITH (ROWLOCK) "
+                        "UPDATE CS_Digital.dbo.tblS3Image "
                         "SET s3FilePath = ? WHERE recordID = ?",
                         s3_params,
                     )
                     csd_conn.execute_many(
-                        "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) "
+                        "UPDATE CS_Digital.dbo.tblS3Image_LND7726 "
                         "SET Processed = 1 WHERE recordID = ?",
                         processed_params,
                     )
@@ -101,7 +101,7 @@ def update_database_from_csv(csv_file_path: str):
             if failure_rows:
                 failure_params = [(row['record_id'],) for row in failure_rows]
                 csd_conn.execute_many(
-                    "UPDATE CS_Digital.dbo.tblS3Image_LND7726 WITH (ROWLOCK) "
+                    "UPDATE CS_Digital.dbo.tblS3Image_LND7726 "
                     "SET Processed = -1 WHERE recordID = ?",
                     failure_params,
                 )

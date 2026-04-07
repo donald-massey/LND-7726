@@ -69,6 +69,7 @@ class DatabaseConnection:
             f"TrustServerCertificate=yes;"
         )
         self._conn = pyodbc.connect(conn_str, autocommit=False)
+        self._conn.cursor().fast_executemany = True
         logger.info("[%s] Connected to %s", self.db_name, self.server)
 
     def close(self) -> None:
