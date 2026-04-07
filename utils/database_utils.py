@@ -69,7 +69,6 @@ class DatabaseConnection:
             f"TrustServerCertificate=yes;"
         )
         self._conn = pyodbc.connect(conn_str, autocommit=False)
-        self._conn.cursor().fast_executemany = True
         logger.info("[%s] Connected to %s", self.db_name, self.server)
 
     def close(self) -> None:
@@ -155,6 +154,7 @@ class DatabaseConnection:
         for attempt in range(max_retries):
             try:
                 cursor = self._conn.cursor()
+                cursor.fast_executemany = True
                 cursor.executemany(sql, params_seq)
                 if not self._in_transaction:
                     self._conn.commit()
